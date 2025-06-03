@@ -23,7 +23,6 @@ public class CivManager : MonoBehaviour, ICivManager
     private IMapManager mapManager;
     private ICivsManager civsManager;
 
-
     // Properties
     public ICivilization Civilization => civilization;
     public ICitiesManager CitiesManager => citiesManager;
@@ -40,9 +39,6 @@ public class CivManager : MonoBehaviour, ICivManager
         this.civId = civilization.CivId;
         this.civName = civilization.CivName;
 
-        // Initialize building database
-
-
         // Setup all sub-managers
         SetupCitiesManager();
         SetupUnitsManager();
@@ -50,12 +46,7 @@ public class CivManager : MonoBehaviour, ICivManager
         SetupDiplomacyManager();
         SetupResourceManager();
 
-        // Create starting city for human players
-        if (civilization.IsHuman)
-        {
-            CreateStartingCity();
-        }
-
+        // NO automatic city creation - we'll let units create cities
         Debug.Log($"CivManager initialized for {civilization.CivName}");
     }
 
@@ -69,7 +60,6 @@ public class CivManager : MonoBehaviour, ICivManager
 
         // Configure CitiesManager
         citiesManager.mapGenerator = mapManager.HexMap;
-    
 
         // Create city prefab if needed (placeholder)
         if (citiesManager.cityPrefab == null)
@@ -129,67 +119,6 @@ public class CivManager : MonoBehaviour, ICivManager
         cityPrefab.SetActive(false); // Hide the template
     }
 
-    void CreateStartingCity()
-    {
-        // Find a suitable starting location
-        var startingHex = FindStartingLocation();
-        if (startingHex != null)
-        {
-            var city = citiesManager.FoundCity($"{civilization.CivName} Capital", startingHex);
-            if (city != null)
-            {
-                Debug.Log($"Founded capital for {civilization.CivName} at ({startingHex.Q}, {startingHex.R})");
-            }
-        }
-        else
-        {
-            Debug.LogWarning($"Could not find starting location for {civilization.CivName}");
-        }
-    }
-
-    Hex FindStartingLocation()
-    {
-        var allHexes = mapManager.GetAllHexes();
-
-        // Simple starting location logic - find first non-obstacle hex
-        // In a real game, you'd want better spawn logic (balanced, spread out, etc.)
-        foreach (var kvp in allHexes)
-        {
-            var hex = kvp.Value;
-            if (!hex.IsObstacle && hex.Terrain == TerrainType.Grassland)
-            {
-                // Check if location is free (no other cities nearby)
-                bool locationFree = true;
-                var neighbors = mapManager.GetReachableHexes(hex, 4);
-                foreach (var neighbor in neighbors)
-                {
-                    if (neighbor.IsWorked)
-                    {
-                        locationFree = false;
-                        break;
-                    }
-                }
-
-                if (locationFree)
-                {
-                    return hex;
-                }
-            }
-        }
-
-        // Fallback - any non-obstacle hex
-        foreach (var kvp in allHexes)
-        {
-            var hex = kvp.Value;
-            if (!hex.IsObstacle)
-            {
-                return hex;
-            }
-        }
-
-        return null;
-    }
-
     public void ProcessTurn()
     {
         if (!IsAlive()) return;
@@ -223,11 +152,14 @@ public class CivManager : MonoBehaviour, ICivManager
         civilization.AddCulture(Mathf.FloorToInt(totalYields.culture * cultureMultiplier));
         civilization.AddFaith(Mathf.FloorToInt(totalYields.faith * faithMultiplier));
 
-        Debug.Log($"{civilization.CivName} collected: " +
-                  $"Gold +{totalYields.gold + goldPerTurn}, " +
-                  $"Science +{totalYields.science}, " +
-                  $"Culture +{totalYields.culture}, " +
-                  $"Faith +{totalYields.faith}");
+        if (citiesManager.GetCityCount() > 0)
+        {
+            Debug.Log($"{civilization.CivName} collected: " +
+                      $"Gold +{totalYields.gold + goldPerTurn}, " +
+                      $"Science +{totalYields.science}, " +
+                      $"Culture +{totalYields.culture}, " +
+                      $"Faith +{totalYields.faith}");
+        }
     }
 
     public void ProcessResources()
@@ -287,9 +219,9 @@ public class CivManager : MonoBehaviour, ICivManager
     void CheckSurvival()
     {
         // Check if civilization should be destroyed
-        if (GetCityCount() == 0)
+        if (GetCityCount() == 0 && unitsManager.GetUnitTypeCount(UnitType.Settler) == 0)
         {
-            Debug.Log($"{civilization.CivName} has no cities left!");
+            Debug.Log($"{civilization.CivName} has no cities and no settlers left!");
             DestroyCivilization();
         }
     }
@@ -345,18 +277,13 @@ public class CivManager : MonoBehaviour, ICivManager
 
     public void FoundCity(string cityName, Hex location)
     {
-        if (location != null && CanAfford(100)) // City costs 100 gold
+        if (location != null)
         {
             var city = citiesManager.FoundCity(cityName, location);
             if (city != null)
             {
-                SpendGold(100);
                 Debug.Log($"{civilization.CivName} founded {cityName}");
             }
-        }
-        else
-        {
-            Debug.LogWarning($"{civilization.CivName} cannot afford to found a city (need 100 gold)");
         }
     }
 

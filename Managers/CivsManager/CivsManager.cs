@@ -6,16 +6,21 @@ public class CivsManager : MonoBehaviour, ICivsManager
 {
     [Header("Civilization Settings")]
     public GameObject civManagerPrefab;
-    public int maxCivilizations = 8;
+    public int numberOfPlayers = 2;
 
-    [Header("Starting Setup")]
-    public bool createTestCivs = true;
-    public string[] testCivNames = { "Rome", "Egypt", "Greece", "China" };
+    [Header("Civilization Names")]
+    public List<string> civilizationNames = new List<string> { "Rome", "Egypt", "Greece", "China", "Persia", "Japan", "Germany", "France" };
+    public List<string> leaderNames = new List<string> { "Caesar", "Cleopatra", "Alexander", "Qin Shi Huang", "Cyrus", "Oda Nobunaga", "Bismarck", "Napoleon" };
+
+    [Header("Starting Units")]
+    public bool giveStartingUnits = true;
+    public int minDistanceBetweenStarts = 15;
 
     private List<ICivilization> civilizations = new List<ICivilization>();
     private Dictionary<string, Dictionary<string, CivRelation>> relations = new Dictionary<string, Dictionary<string, CivRelation>>();
     private IMapManager mapManager;
     private int civIdCounter = 0;
+    private List<Vector2Int> usedStartPositions = new List<Vector2Int>();
 
     // Properties
     public List<ICivilization> Civilizations => civilizations;
@@ -32,36 +37,28 @@ public class CivsManager : MonoBehaviour, ICivsManager
 
         Debug.Log("=== INITIALIZING CIVILIZATIONS MANAGER ===");
 
-        if (createTestCivs)
-        {
-            CreateTestCivilizations();
-        }
-
+        CreatePlayerCivilizations();
         InitializeRelations();
 
         Debug.Log($"CivsManager initialized with {CivCount} civilizations");
     }
 
-    void CreateTestCivilizations()
+    void CreatePlayerCivilizations()
     {
-        // Create human player first
-        var humanCiv = CreateCivilization(testCivNames[0], "Player", true);
+        int actualPlayers = Mathf.Min(numberOfPlayers, civilizationNames.Count);
 
-        // Create AI civilizations
-        for (int i = 1; i < testCivNames.Length && i < maxCivilizations; i++)
+        for (int i = 0; i < actualPlayers; i++)
         {
-            CreateCivilization(testCivNames[i], $"AI Leader {i}", false);
+            string civName = civilizationNames[i];
+            string leaderName = i < leaderNames.Count ? leaderNames[i] : $"Leader {i + 1}";
+
+            // All players are human-controlled
+            CreateCivilization(civName, leaderName, true);
         }
     }
 
     public ICivilization CreateCivilization(string civName, string leaderName, bool isHuman = false)
     {
-        if (CivCount >= maxCivilizations)
-        {
-            Debug.LogWarning($"Cannot create civilization - maximum of {maxCivilizations} reached");
-            return null;
-        }
-
         string civId = $"civ_{++civIdCounter}";
 
         // Create CivManager GameObject
@@ -94,10 +91,124 @@ public class CivsManager : MonoBehaviour, ICivsManager
         // Initialize relations for new civ
         InitializeRelationsForCiv(civilization);
 
+        // Create starting units for all players
+        if (giveStartingUnits)
+        {
+            CreateStartingUnits(civilization);
+        }
+
         OnCivilizationCreated?.Invoke(civilization);
         Debug.Log($"Created civilization: {civName} (Leader: {leaderName}, Human: {isHuman})");
 
         return civilization;
+    }
+
+    void CreateStartingUnits(ICivilization civilization)
+    {
+        // Find a valid starting position
+        var startPos = FindValidStartingPosition();
+        if (startPos == null)
+        {
+            Debug.LogError($"Could not find valid starting position for {civilization.CivName}!");
+            return;
+        }
+
+        usedStartPositions.Add(startPos.Value);
+
+        // Get the hex at starting position
+        var startHex = mapManager.GetHex(startPos.Value);
+        if (startHex == null)
+        {
+            Debug.LogError($"No hex found at position {startPos.Value}!");
+            return;
+        }
+
+        // Create settler at starting position
+        var unitsManager = civilization.CivManager?.UnitsManager;
+        if (unitsManager != null)
+        {
+            var settler = unitsManager.CreateUnit(UnitType.Settler, startHex);
+            if (settler != null)
+            {
+                Debug.Log($"Created Settler for {civilization.CivName} at ({startHex.Q}, {startHex.R})");
+            }
+
+            // Find a neighboring hex for the warrior
+            var neighbors = mapManager.GetNeighbors(startHex);
+            Hex warriorHex = null;
+
+            foreach (var neighbor in neighbors)
+            {
+                if (!neighbor.IsObstacle && neighbor.Terrain != TerrainType.Mountain && neighbor.Terrain != TerrainType.Ocean)
+                {
+                    warriorHex = neighbor;
+                    break;
+                }
+            }
+
+            if (warriorHex != null)
+            {
+                var warrior = unitsManager.CreateUnit(UnitType.Warrior, warriorHex);
+                if (warrior != null)
+                {
+                    Debug.Log($"Created Warrior for {civilization.CivName} at ({warriorHex.Q}, {warriorHex.R})");
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"Could not find valid neighbor hex for warrior placement for {civilization.CivName}");
+            }
+        }
+    }
+
+    Vector2Int? FindValidStartingPosition()
+    {
+        var allHexes = mapManager.GetAllHexes();
+        List<Vector2Int> validPositions = new List<Vector2Int>();
+
+        // Find all valid starting positions
+        foreach (var kvp in allHexes)
+        {
+            var hex = kvp.Value;
+
+            // Check if hex is valid for starting
+            if (hex.IsObstacle || hex.Terrain == TerrainType.Mountain || hex.Terrain == TerrainType.Ocean)
+                continue;
+
+            // Check if it's far enough from other starts
+            bool tooClose = false;
+            foreach (var usedPos in usedStartPositions)
+            {
+                var usedHex = mapManager.GetHex(usedPos);
+                if (usedHex != null && mapManager.GetDistance(hex, usedHex) < minDistanceBetweenStarts)
+                {
+                    tooClose = true;
+                    break;
+                }
+            }
+
+            if (!tooClose)
+            {
+                // Check if it has at least one valid neighbor for warrior
+                var neighbors = mapManager.GetNeighbors(hex);
+                bool hasValidNeighbor = neighbors.Any(n => !n.IsObstacle && n.Terrain != TerrainType.Mountain && n.Terrain != TerrainType.Ocean);
+
+                if (hasValidNeighbor)
+                {
+                    validPositions.Add(kvp.Key);
+                }
+            }
+        }
+
+        if (validPositions.Count == 0)
+        {
+            Debug.LogWarning("No valid starting positions found!");
+            return null;
+        }
+
+        // Choose a random valid position
+        int randomIndex = Random.Range(0, validPositions.Count);
+        return validPositions[randomIndex];
     }
 
     void InitializeRelations()
