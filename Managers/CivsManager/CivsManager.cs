@@ -14,7 +14,7 @@ public class CivsManager : MonoBehaviour, ICivsManager
 
     [Header("Starting Units")]
     public bool giveStartingUnits = true;
-    public int minDistanceBetweenStarts = 15;
+    public int minDistanceBetweenStarts = 10;
 
     private List<ICivilization> civilizations = new List<ICivilization>();
     private Dictionary<string, Dictionary<string, CivRelation>> relations = new Dictionary<string, Dictionary<string, CivRelation>>();
@@ -37,12 +37,50 @@ public class CivsManager : MonoBehaviour, ICivsManager
 
         Debug.Log("=== INITIALIZING CIVILIZATIONS MANAGER ===");
 
+        // Verify map is ready
+        if (!ValidateMapReady())
+        {
+            Debug.LogError("Map is not ready for civilization placement!");
+            return;
+        }
+
         CreatePlayerCivilizations();
         InitializeRelations();
 
         Debug.Log($"CivsManager initialized with {CivCount} civilizations");
     }
 
+    bool ValidateMapReady()
+    {
+        if (mapManager == null)
+        {
+            Debug.LogError("MapManager is null!");
+            return false;
+        }
+
+        if (mapManager.HexMap == null)
+        {
+            Debug.LogError("HexMap is null!");
+            return false;
+        }
+
+        var allHexes = mapManager.GetAllHexes();
+        if (allHexes == null || allHexes.Count == 0)
+        {
+            Debug.LogError($"No hexes available! GetAllHexes returned {allHexes?.Count ?? 0} hexes");
+
+            // Try direct access to hexes
+            if (mapManager.HexMap.hexes != null)
+            {
+                Debug.LogError($"Direct hex access shows {mapManager.HexMap.hexes.Count} hexes");
+            }
+
+            return false;
+        }
+
+        Debug.Log($"Map validation successful: {allHexes.Count} hexes available");
+        return true;
+    }
     void CreatePlayerCivilizations()
     {
         int actualPlayers = Mathf.Min(numberOfPlayers, civilizationNames.Count);
@@ -164,51 +202,145 @@ public class CivsManager : MonoBehaviour, ICivsManager
     Vector2Int? FindValidStartingPosition()
     {
         var allHexes = mapManager.GetAllHexes();
+
+        if (allHexes == null || allHexes.Count == 0)
+        {
+            Debug.LogError("GetAllHexes returned null or empty!");
+
+            // Try to force map generation
+            if (mapManager.HexMap != null)
+            {
+                Debug.LogWarning("Attempting to access hexes directly...");
+                // This might trigger hex generation if it's lazy-loaded
+                var directHexes = mapManager.HexMap.hexes;
+                if (directHexes != null && directHexes.Count > 0)
+                {
+                    Debug.Log($"Direct access found {directHexes.Count} hexes");
+                    allHexes = directHexes;
+                }
+            }
+
+            if (allHexes == null || allHexes.Count == 0)
+            {
+                return null;
+            }
+        }
+
         List<Vector2Int> validPositions = new List<Vector2Int>();
+
+        Debug.Log($"Searching for starting positions. Total hexes: {allHexes.Count}");
+        Debug.Log($"Used start positions: {usedStartPositions.Count}, Min distance: {minDistanceBetweenStarts}");
+
+        // Reduce minimum distance based on map size
+        int mapSize = Mathf.RoundToInt(Mathf.Sqrt(allHexes.Count));
+        int adjustedMinDistance = Mathf.Min(minDistanceBetweenStarts, mapSize / 3);
+
+        Debug.Log($"Map appears to be roughly {mapSize}x{mapSize}, using min distance: {adjustedMinDistance}");
+
+        int obstacleCount = 0;
+        int terrainFilteredCount = 0;
+        int tooCloseCount = 0;
+        int noValidNeighborCount = 0;
 
         // Find all valid starting positions
         foreach (var kvp in allHexes)
         {
             var hex = kvp.Value;
 
-            // Check if hex is valid for starting
-            if (hex.IsObstacle || hex.Terrain == TerrainType.Mountain || hex.Terrain == TerrainType.Ocean)
+            // Check if hex is valid for starting - be less restrictive
+            if (hex.IsObstacle)
+            {
+                obstacleCount++;
                 continue;
+            }
 
-            // Check if it's far enough from other starts
+            // Only exclude truly unlivable terrain
+            if (hex.Terrain == TerrainType.Mountain || hex.Terrain == TerrainType.Ocean)
+            {
+                terrainFilteredCount++;
+                continue;
+            }
+
+            // Check distance to other starts
             bool tooClose = false;
             foreach (var usedPos in usedStartPositions)
             {
                 var usedHex = mapManager.GetHex(usedPos);
-                if (usedHex != null && mapManager.GetDistance(hex, usedHex) < minDistanceBetweenStarts)
+                if (usedHex != null && mapManager.GetDistance(hex, usedHex) < adjustedMinDistance)
                 {
                     tooClose = true;
                     break;
                 }
             }
 
-            if (!tooClose)
+            if (tooClose)
             {
-                // Check if it has at least one valid neighbor for warrior
-                var neighbors = mapManager.GetNeighbors(hex);
-                bool hasValidNeighbor = neighbors.Any(n => !n.IsObstacle && n.Terrain != TerrainType.Mountain && n.Terrain != TerrainType.Ocean);
-
-                if (hasValidNeighbor)
-                {
-                    validPositions.Add(kvp.Key);
-                }
+                tooCloseCount++;
+                continue;
             }
+
+            // Check for valid neighbors - be more lenient
+            var neighbors = mapManager.GetNeighbors(hex);
+            bool hasValidNeighbor = neighbors.Count > 0 && neighbors.Any(n => !n.IsObstacle);
+
+            if (!hasValidNeighbor)
+            {
+                noValidNeighborCount++;
+                continue;
+            }
+
+            validPositions.Add(kvp.Key);
+            Debug.Log($"Valid position found at ({kvp.Key.x}, {kvp.Key.y}) - Terrain: {hex.Terrain}");
         }
+
+        Debug.Log($"Position filtering results:");
+        Debug.Log($"  Obstacles: {obstacleCount}");
+        Debug.Log($"  Bad terrain: {terrainFilteredCount}");
+        Debug.Log($"  Too close: {tooCloseCount}");
+        Debug.Log($"  No valid neighbors: {noValidNeighborCount}");
+        Debug.Log($"  Valid positions: {validPositions.Count}");
 
         if (validPositions.Count == 0)
         {
-            Debug.LogWarning("No valid starting positions found!");
-            return null;
+            Debug.LogError("No valid starting positions found! Trying emergency fallback...");
+            return FindEmergencyStartingPosition();
         }
 
         // Choose a random valid position
         int randomIndex = Random.Range(0, validPositions.Count);
-        return validPositions[randomIndex];
+        var chosenPos = validPositions[randomIndex];
+        Debug.Log($"Chosen starting position: ({chosenPos.x}, {chosenPos.y})");
+        return chosenPos;
+    }
+
+    // Add this emergency fallback method:
+    Vector2Int? FindEmergencyStartingPosition()
+    {
+        var allHexes = mapManager.GetAllHexes();
+
+        Debug.Log("Emergency fallback: looking for ANY non-obstacle hex...");
+
+        // Just find ANY non-obstacle hex
+        foreach (var kvp in allHexes)
+        {
+            var hex = kvp.Value;
+            if (!hex.IsObstacle)
+            {
+                Debug.LogWarning($"Emergency position selected at ({kvp.Key.x}, {kvp.Key.y}) - Terrain: {hex.Terrain}");
+                return kvp.Key;
+            }
+        }
+
+        // Absolutely last resort: pick the first hex period
+        if (allHexes.Count > 0)
+        {
+            var firstHex = allHexes.First();
+            Debug.LogError($"DESPERATE FALLBACK: Using first hex at ({firstHex.Key.x}, {firstHex.Key.y})");
+            return firstHex.Key;
+        }
+
+        Debug.LogError("Could not find ANY hex at all!");
+        return null;
     }
 
     void InitializeRelations()

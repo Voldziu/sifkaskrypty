@@ -44,10 +44,45 @@ public class GameManager : MonoBehaviour, IGameManager
             return;
         }
 
-        // Initialize managers in order
-        InitializeManagers();
+        // Initialize managers with proper timing
+        StartCoroutine(InitializeManagersSequentially());
+    }
 
-        Debug.Log("Game initialization complete");
+    System.Collections.IEnumerator InitializeManagersSequentially()
+    {
+        // Initialize MapManager first
+        Debug.Log("Initializing MapManager...");
+        mapManager.Initialize();
+
+        // Wait for hex map to be generated
+        Debug.Log("Waiting for hex map generation...");
+        float timeout = 10f; // 10 second timeout
+        float elapsed = 0f;
+
+        while (mapManager.HexMap.hexes.Count == 0 && elapsed < timeout)
+        {
+            yield return new WaitForSeconds(0.1f);
+            elapsed += 0.1f;
+
+            if (elapsed % 1f < 0.1f) // Log every second
+            {
+                Debug.Log($"Waiting for hexes... Elapsed: {elapsed:F1}s, Hexes: {mapManager.HexMap.hexes.Count}");
+            }
+        }
+
+        if (mapManager.HexMap.hexes.Count == 0)
+        {
+            Debug.LogError("Hex map generation failed or timed out!");
+            yield break;
+        }
+
+        Debug.Log($"Hex map ready with {mapManager.HexMap.hexes.Count} hexes");
+
+        // Now initialize CivsManager with the ready map
+        Debug.Log("Initializing CivsManager...");
+        civsManager.Initialize(mapManager);
+
+        Debug.Log("All managers initialized successfully");
     }
 
     bool ValidateDependencies()
@@ -86,12 +121,25 @@ public class GameManager : MonoBehaviour, IGameManager
             return;
         }
 
+        // Double-check that we have civilizations and hexes
+        if (civsManager.CivCount == 0)
+        {
+            Debug.LogError("Cannot start game: No civilizations created!");
+            return;
+        }
+
+        if (mapManager.HexMap.hexes.Count == 0)
+        {
+            Debug.LogError("Cannot start game: No hexes available!");
+            return;
+        }
+
         SetGameState(GameState.Running);
         currentTurn = 1;
         OnTurnChanged?.Invoke(currentTurn);
 
         Debug.Log("=== GAME STARTED ===");
-        Debug.Log($"Turn {currentTurn}");
+        Debug.Log($"Turn {currentTurn} - {civsManager.CivCount} civilizations, {mapManager.HexMap.hexes.Count} hexes");
     }
 
     public void PauseGame()

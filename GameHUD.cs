@@ -178,11 +178,11 @@ public class GameHUD : MonoBehaviour
 
     public void ShowUnitInfo(IUnit unit)
     {
-        selectedUnit = unit;
+        selectedUnit = unit; // Store the selected unit
         if (unitPanel) unitPanel.SetActive(true);
 
         if (unitNameText)
-            unitNameText.text = unit.UnitName;
+            unitNameText.text = $"{unit.UnitType}: {unit.UnitName}";
 
         if (unitHealthText)
             unitHealthText.text = $"HP: {unit.Health}/{unit.MaxHealth}";
@@ -192,6 +192,8 @@ public class GameHUD : MonoBehaviour
 
         // Update action button states
         UpdateUnitActionButtons(unit);
+
+        Debug.Log($"Showing unit info for: {unit.UnitName}");
     }
 
     void UpdateUnitActionButtons(IUnit unit)
@@ -334,51 +336,105 @@ public class GameHUD : MonoBehaviour
     }
 
     // Event Handlers
-    void OnHexSelected(Hex selectedHex)
+    public void OnHexSelected(Hex selectedHex)
     {
         if (selectedHex == null) return;
 
-        // Check if hex has a city
-        ICity cityOnHex = GetCityAtHex(selectedHex);
-        if (cityOnHex != null)
-        {
-            ShowCityManagement(cityOnHex);
-        }
-        else
-        {
-            HideCityManagement();
-        }
+        Debug.Log($"Hex selected at ({selectedHex.Q}, {selectedHex.R})");
 
-        // Check if hex has units
+        // Check if hex has units FIRST (prioritize unit selection)
         IUnit unitOnHex = GetUnitAtHex(selectedHex);
         if (unitOnHex != null)
         {
+            Debug.Log($"Unit found: {unitOnHex.UnitName}");
             ShowUnitInfo(unitOnHex);
+
+            // Still check for city, but don't hide unit panel
+            ICity cityOnHex = GetCityAtHex(selectedHex);
+            if (cityOnHex != null)
+            {
+                ShowCityManagement(cityOnHex);
+            }
+            else
+            {
+                // Only hide city panel if no city, keep unit panel
+                HideCityManagement();
+            }
         }
         else
         {
-            HideUnitPanel();
+            // No unit found, check for city
+            ICity cityOnHex = GetCityAtHex(selectedHex);
+            if (cityOnHex != null)
+            {
+                ShowCityManagement(cityOnHex);
+                HideUnitPanel(); // Hide unit panel since no unit
+            }
+            else
+            {
+                // Nothing on this hex
+                HideAllPanels();
+            }
         }
     }
 
-    void OnHexDeselected(Hex deselectedHex)
+    public void OnHexDeselected(Hex deselectedHex)
     {
-        HideAllPanels();
+        // Don't automatically hide panels on deselect - let user click elsewhere or press ESC
+        Debug.Log("Hex deselected");
     }
 
     ICity GetCityAtHex(Hex hex)
     {
-        // TODO: Implement proper city detection at hex
-        // This would need to check if the hex is a city center
-        // For now, return null as placeholder
+        if (currentPlayerCiv?.CivManager?.CitiesManager == null) return null;
+
+        var cities = currentPlayerCiv.CivManager.CitiesManager.GetAllCities();
+        foreach (var city in cities)
+        {
+            // Check if this hex is the city center
+            if (city.CenterHex != null &&
+                city.CenterHex.Q == hex.Q &&
+                city.CenterHex.R == hex.R)
+            {
+                return city;
+            }
+        }
         return null;
     }
 
+
+
     IUnit GetUnitAtHex(Hex hex)
     {
-        // TODO: Implement proper unit detection at hex
-        // This would need to check UnitsManager for units at this hex
-        // For now, return null as placeholder
+        if (currentPlayerCiv?.CivManager?.UnitsManager == null)
+        {
+            Debug.Log("No UnitsManager found for current player");
+            return null;
+        }
+
+        var units = currentPlayerCiv.CivManager.UnitsManager.GetUnitsAt(hex);
+        if (units != null && units.Count > 0)
+        {
+            Debug.Log($"Found {units.Count} units at hex ({hex.Q}, {hex.R})");
+            // Return the first unit (you could add logic to cycle through multiple units)
+            return units[0];
+        }
+
+        // Also check other civilizations' units if you want to see enemy units
+        var allCivs = gameManager.CivsManager.GetAliveCivilizations();
+        foreach (var civ in allCivs)
+        {
+            if (civ.CivId != currentPlayerCiv.CivId && civ.CivManager?.UnitsManager != null)
+            {
+                var enemyUnits = civ.CivManager.UnitsManager.GetUnitsAt(hex);
+                if (enemyUnits != null && enemyUnits.Count > 0)
+                {
+                    Debug.Log($"Found {enemyUnits.Count} enemy units from {civ.CivName} at hex ({hex.Q}, {hex.R})");
+                    return enemyUnits[0]; // Return first enemy unit
+                }
+            }
+        }
+
         return null;
     }
 
@@ -406,6 +462,30 @@ public class GameHUD : MonoBehaviour
             default:
                 Debug.Log($"Unit action {actionIndex} for {selectedUnit.UnitName}");
                 break;
+        }
+    }
+
+    void HandleUnitReselection(IUnit unit)
+    {
+        if (selectedUnit == unit)
+        {
+            // Same unit clicked again - could cycle through units on same hex
+            var hex = unit.CurrentHex;
+            var unitsOnHex = currentPlayerCiv?.CivManager?.UnitsManager?.GetUnitsAt(hex);
+
+            if (unitsOnHex != null && unitsOnHex.Count > 1)
+            {
+                // Find current unit index and select next one
+                int currentIndex = unitsOnHex.IndexOf(unit);
+                int nextIndex = (currentIndex + 1) % unitsOnHex.Count;
+                ShowUnitInfo(unitsOnHex[nextIndex]);
+                Debug.Log($"Cycling to next unit: {unitsOnHex[nextIndex].UnitName}");
+            }
+        }
+        else
+        {
+            // Different unit selected
+            ShowUnitInfo(unit);
         }
     }
 

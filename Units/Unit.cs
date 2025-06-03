@@ -138,17 +138,32 @@ public class Unit : MonoBehaviour, IUnit
 
     Vector3 GetWorldPosition()
     {
-        // Get base position from hex
-        Vector3 basePos = Vector3.zero; // This should come from map manager
+        Vector3 basePos = Vector3.zero;
 
-        // Offset combat and civilian units so they don't overlap
+        if (currentHex != null)
+        {
+            // Try to get map manager reference
+            var mapManager = FindObjectOfType<MapManager>();
+            if (mapManager != null && mapManager.HexMap != null)
+            {
+                basePos = mapManager.HexMap.HexToWorld(currentHex.Q, currentHex.R);
+            }
+            else
+            {
+                Debug.LogWarning($"Could not find MapManager for unit {unitName} positioning");
+                // Fallback: use hex coordinates directly (scaled)
+                basePos = new Vector3(currentHex.Q * 1.5f, currentHex.R * 1.3f, 0);
+            }
+        }
+
+        // Offset combat and civilian units so they don't overlap on same hex
         if (unitCategory == UnitCategory.Combat)
         {
-            basePos += new Vector3(-0.2f, 0, 0); // Combat units slightly left
+            basePos += new Vector3(-0.2f, 0.1f, -0.1f); // Combat units slightly left and forward
         }
         else
         {
-            basePos += new Vector3(0.2f, 0, 0); // Civilian units slightly right
+            basePos += new Vector3(0.2f, -0.1f, -0.1f); // Civilian units slightly right and back
         }
 
         return basePos;
@@ -171,7 +186,16 @@ public class Unit : MonoBehaviour, IUnit
     {
         if (unitVisual != null)
         {
-            unitVisual.transform.position = GetWorldPosition();
+            Vector3 worldPos = GetWorldPosition();
+            unitVisual.transform.position = worldPos;
+            Debug.Log($"Unit {unitName} positioned at world coordinates: {worldPos}");
+        }
+        else if (gameObject != null)
+        {
+            // If no separate visual, position the main GameObject
+            Vector3 worldPos = GetWorldPosition();
+            transform.position = worldPos;
+            Debug.Log($"Unit GameObject {unitName} positioned at: {worldPos}");
         }
     }
 
