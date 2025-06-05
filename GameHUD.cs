@@ -1,8 +1,9 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
 using System.Linq;
+using Unity.VisualScripting.Antlr3.Runtime;
 
 public class GameHUD : MonoBehaviour
 {
@@ -28,13 +29,25 @@ public class GameHUD : MonoBehaviour
     public Button[] unitActionButtons;
 
     [Header("Unit Selection")]
-    public TextMeshProUGUI unitCycleText; // Shows "1/2" when multiple units on hex
+    public TextMeshProUGUI unitCycleText;
     public Button cycleUnitsButton;
 
     [Header("City Management Panel")]
     public GameObject cityManagementPanel;
+
+
+    [Header("City Management Panel - Main Panel")]
+    public GameObject cityManagementPanelMainPanel;
     public TextMeshProUGUI cityName;
     public TextMeshProUGUI population;
+
+
+
+    [Header("City Management Panel - Constructed Buildings Panel")]
+    public GameObject cityManagementPanelConstructedBuildingsPanel;
+    public ScrollRect constructedBuildingsScrollView;
+
+
 
     [Header("City Info Panel")]
     public TextMeshProUGUI food;
@@ -57,17 +70,19 @@ public class GameHUD : MonoBehaviour
     [Header("Colors")]
     public Color player1Color = Color.blue;
     public Color player2Color = Color.red;
+    public Color player3Color = Color.green;
+    public Color player4Color = Color.yellow;
 
     [Header("Movement Colors")]
     public Color movementNormalColor = Color.green;
     public Color attackRangeColor = Color.red;
-    public Color cityWorkRadiusColor = new Color(1f, 0.5f, 0f, 0.3f); // Orange with transparency
+    public Color cityWorkRadiusColor = new Color(1f, 0.5f, 0f, 0.3f);
 
     [Header("Movement Info")]
-    public TextMeshProUGUI hexInfoText; // Shows terrain and movement cost info
-    public GameObject hexInfoPanel; // Panel to show hex information
+    public TextMeshProUGUI hexInfoText;
+    public GameObject hexInfoPanel;
 
-    // Selection state
+    // Hot-seat state
     private ICivilization currentPlayerCiv;
     private IUnit selectedUnit;
     private ICity selectedCity;
@@ -104,6 +119,8 @@ public class GameHUD : MonoBehaviour
         {
             gameManager.OnGameStateChanged += OnGameStateChanged;
             gameManager.OnTurnChanged += OnTurnChanged;
+            gameManager.OnCivTurnStarted += OnCivTurnStarted; // New event
+            gameManager.OnCivTurnEnded += OnCivTurnEnded;     // New event
         }
 
         // Subscribe to map manager hex selection
@@ -113,15 +130,228 @@ public class GameHUD : MonoBehaviour
             mapManager.OnHexSelected.AddListener(OnHexSelected);
             mapManager.OnHexDeselected.AddListener(OnHexDeselected);
         }
+
+        SubscribeToTechEvents();
     }
+
+    
 
     void Update()
     {
         UpdateHUD();
         HandleInput();
-        UpdateHexInfo(); // Show hex information when hovering
+        UpdateHexInfo();
+        //HandleCityPanelClickOutside();
     }
 
+    void UpdateHUD()
+    {
+        if (gameManager == null) return;
+
+        UpdateTurnPanel();
+        UpdatePlayerStats();
+  
+    }
+
+    void UpdateTurnPanel()
+    {
+        // Hot-seat: Show current civilization's turn
+        currentPlayerCiv = gameManager.CurrentCivilization;
+
+        if (currentPlayerText && currentPlayerCiv != null)
+        {
+            string turnInfo = $"{currentPlayerCiv.CivName}'s Turn";
+            if (gameManager.GetTotalAliveCivs() > 1)
+            {
+                turnInfo += $" ({gameManager.GetCivTurnOrder()}/{gameManager.GetTotalAliveCivs()})";
+            }
+
+            currentPlayerText.text = turnInfo;
+            currentPlayerText.color = GetCivColor(gameManager.GetCivTurnOrder() - 1);
+        }
+
+        if (tourCounterText)
+            tourCounterText.text = $"Turn: {gameManager.CurrentTurn}";
+
+        // End turn button - check with CivTurnManager
+        if (endTurnButton)
+        {
+            bool gameRunning = gameManager.CurrentGameState == GameState.Running;
+            bool hasCiv = currentPlayerCiv != null;
+            bool canEndTurn = currentPlayerCiv?.CivManager?.CivTurnManager?.CanEndTurn() ?? true;
+
+            endTurnButton.interactable = gameRunning && hasCiv && canEndTurn;
+
+            // Update button text based on what's needed
+            var buttonText = endTurnButton.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+            if (buttonText)
+            {
+                if (!canEndTurn)
+                {
+                    var turnManager = currentPlayerCiv?.CivManager?.CivTurnManager;
+                    var unitsNeeded = turnManager?.GetUnitsNeedingOrders()?.Count ?? 0;
+                    var citiesNeeded = turnManager?.GetCitiesNeedingProduction()?.Count ?? 0;
+
+                    if (unitsNeeded > 0)
+                        buttonText.text = $"Units Need Orders ({unitsNeeded})";
+                    else if (citiesNeeded > 0)
+                        buttonText.text = $"Cities Need Production ({citiesNeeded})";
+                    else
+                        buttonText.text = "Orders Needed";
+                }
+                else
+                {
+                    buttonText.text = "End Turn";
+                }
+            }
+        }
+    }
+
+    Color GetCivColor(int civIndex)
+    {
+        switch (civIndex % 4)
+        {
+            case 0: return player1Color;
+            case 1: return player2Color;
+            case 2: return player3Color;
+            case 3: return player4Color;
+            default: return Color.white;
+        }
+    }
+
+    void UpdatePlayerStats()
+    {
+        if (currentPlayerCiv?.CivManager == null) return;
+
+        var civManager = currentPlayerCiv.CivManager;
+        if (citiesText) citiesText.text = $"Cities: {civManager.GetCityCount()}";
+        if (goldText) goldText.text = $"Gold: {currentPlayerCiv.Gold}";
+        if (scienceText) scienceText.text = $"Science: {currentPlayerCiv.Science}";
+        if (cultureText) cultureText.text = $"Culture: {currentPlayerCiv.Culture}";
+    }
+
+    // Hot-seat: Only get units for current player
+    List<IUnit> GetAllUnitsAtHex(Hex hex)
+    {
+        List<IUnit> allUnits = new List<IUnit>();
+
+        if (currentPlayerCiv?.CivManager?.UnitsManager == null) return allUnits;
+
+        // Only get current player's units in hot-seat mode
+        var playerUnits = currentPlayerCiv.CivManager.UnitsManager.GetUnitsAt(hex);
+        if (playerUnits != null)
+            allUnits.AddRange(playerUnits);
+
+        // Sort: combat units first, then civilians
+        return allUnits.OrderBy(u => u.IsCombatUnit() ? 0 : 1).ToList();
+    }
+
+    // Hot-seat: Only interact with current player's units and cities
+    void HandleNormalHexSelection(Hex selectedHex)
+    {
+        lastSelectedHex = selectedHex;
+
+        // Get current player's units on this hex only
+        unitsOnSelectedHex = GetAllUnitsAtHex(selectedHex);
+        selectedUnitIndex = 0;
+
+        IUnit unitOnHex = GetCurrentSelectedUnit();
+        ICity cityOnHex = GetCurrentPlayerCityAtHex(selectedHex);
+
+        if (unitOnHex != null)
+        {
+            SelectUnit(unitOnHex);
+            if (cityOnHex != null)
+            {
+                ShowCityManagement(cityOnHex);
+            }
+            else
+            {
+                HideCityManagement();
+            }
+        }
+        else if (cityOnHex != null)
+        {
+            SelectCity(cityOnHex);
+            HideUnitPanel();
+        }
+        else
+        {
+            DeselectAll();
+        }
+    }
+
+    // Hot-seat: Only get current player's cities
+    ICity GetCurrentPlayerCityAtHex(Hex hex)
+    {
+        if (currentPlayerCiv?.CivManager?.CitiesManager == null) return null;
+
+        var cities = currentPlayerCiv.CivManager.CitiesManager.GetAllCities();
+        foreach (var city in cities)
+        {
+            if (city.CenterHex != null && city.CenterHex.Q == hex.Q && city.CenterHex.R == hex.R)
+                return city;
+        }
+        return null;
+    }
+
+    // Event handlers for hot-seat system
+    void OnCivTurnStarted(ICivilization civ)
+    {
+        Debug.Log($"UI: {civ.CivName}'s turn started");
+
+        // Clear any previous selections when new civ starts
+        DeselectAll();
+
+        // Update current player reference
+        currentPlayerCiv = civ;
+
+        // Force UI update
+        UpdateHUD();
+    }
+
+    void OnCivTurnEnded(ICivilization civ)
+    {
+        Debug.Log($"UI: {civ.CivName}'s turn ended");
+
+        // Clear selections when turn ends
+        DeselectAll();
+    }
+
+    void OnEndTurnClicked()
+    {
+        if (gameManager && gameManager.CurrentGameState == GameState.Running)
+        {
+            var turnManager = currentPlayerCiv?.CivManager?.CivTurnManager;
+
+            if (turnManager != null && !turnManager.CanEndTurn())
+            {
+                // Navigate to next item needing orders instead of ending turn
+                turnManager.GoToNextItemNeedingOrders();
+                return;
+            }
+
+            CancelMovementMode();
+            ClearAllHighlights();
+            gameManager.NextTurn();
+        }
+    }
+
+    void OnGameStateChanged(GameState newState)
+    {
+        Debug.Log($"UI: Game state changed to: {newState}");
+        UpdateHUD();
+    }
+
+    void OnTurnChanged(int newTurn)
+    {
+        Debug.Log($"UI: Turn changed to: {newTurn}");
+        CancelMovementMode();
+        ClearAllHighlights();
+        UpdateHUD();
+    }
+
+    // Rest of the methods remain the same...
     void UpdateHexInfo()
     {
         if (hexInfoText == null || !isInMovementMode || selectedUnit == null)
@@ -138,10 +368,8 @@ public class GameHUD : MonoBehaviour
             {
                 if (hexInfoPanel) hexInfoPanel.SetActive(true);
 
-                // Show terrain and movement cost info
                 string info = $"{hoveredHex.Terrain} - {hoveredHex.GetMovementCostInfo()}";
 
-                // Check if hex is reachable
                 bool canReach = currentValidMoves.Any(hex => hex.Q == hoveredHex.Q && hex.R == hoveredHex.R);
                 if (canReach)
                 {
@@ -168,20 +396,17 @@ public class GameHUD : MonoBehaviour
 
     void HandleInput()
     {
-        // ESC to deselect and cancel movement mode
         if (Input.GetKeyDown(KeyCode.Escape))
         {
             CancelMovementMode();
             DeselectAll();
         }
 
-        // Tab to cycle through units on current hex
         if (Input.GetKeyDown(KeyCode.Tab) && unitsOnSelectedHex.Count > 1)
         {
             CycleToNextUnit();
         }
 
-        // Right-click for movement when any unit is selected
         if (Input.GetMouseButtonDown(1) && selectedUnit != null)
         {
             HandleRightClickMovement();
@@ -196,13 +421,11 @@ public class GameHUD : MonoBehaviour
         Hex clickedHex = mapManager.GetHexUnderMouse();
         if (clickedHex != null)
         {
-            // If not in movement mode, automatically enter it first
             if (!isInMovementMode)
             {
                 EnterMovementMode();
             }
 
-            // Then handle the movement
             if (isInMovementMode)
             {
                 HandleMovementClick(clickedHex);
@@ -210,24 +433,12 @@ public class GameHUD : MonoBehaviour
         }
     }
 
-    public void OnHexSelected(Hex selectedHex)
-    {
-        if (selectedHex == null) return;
-
-        Debug.Log($"Hex selected at ({selectedHex.Q}, {selectedHex.R})");
-
-        // Normal selection logic - always handle selection first
-        HandleNormalHexSelection(selectedHex);
-    }
-
     void HandleMovementClick(Hex targetHex)
     {
         if (selectedUnit == null || !isInMovementMode) return;
 
-        // Check if the target hex is in valid moves
         if (currentValidMoves.Any(hex => hex.Q == targetHex.Q && hex.R == targetHex.R))
         {
-            // Show movement cost before moving
             var unitsManager = currentPlayerCiv?.CivManager?.UnitsManager;
             if (unitsManager != null)
             {
@@ -240,17 +451,11 @@ public class GameHUD : MonoBehaviour
                 {
                     Debug.Log($"Move successful! {selectedUnit.UnitName} now has {selectedUnit.Movement} movement left");
 
-                    // Always exit movement mode first and clear highlights
                     isInMovementMode = false;
                     ClearAllHighlights();
-
-                    // Update the unit info display to show new movement points
                     ShowUnitInfo(selectedUnit);
-
-                    // Show updated movement range using MapManager
                     ShowMovementRange(selectedUnit);
 
-                    // Restore normal unit display (remove [MOVE] prefix)
                     if (unitNameText)
                         unitNameText.text = $"{selectedUnit.UnitType}: {selectedUnit.UnitName}";
                 }
@@ -263,64 +468,27 @@ public class GameHUD : MonoBehaviour
         else
         {
             Debug.Log($"Invalid move target: ({targetHex.Q}, {targetHex.R}) is not in range");
-
-            // TODO: Future feature - Queue movement with pathfinding
-            // if (IsValidQueuedMove(targetHex))
-            // {
-            //     QueueMovement(selectedUnit, targetHex);
-            // }
         }
     }
 
-    void HandleNormalHexSelection(Hex selectedHex)
+    public void OnHexSelected(Hex selectedHex)
     {
-        lastSelectedHex = selectedHex;
+        if (selectedHex == null) return;
+        Debug.Log($"Hex selected at ({selectedHex.Q}, {selectedHex.R})");
+        HandleNormalHexSelection(selectedHex);
+    }
 
-        // Get all units on this hex
-        unitsOnSelectedHex = GetAllUnitsAtHex(selectedHex);
-        selectedUnitIndex = 0;
-
-        // Check what's on this hex
-        IUnit unitOnHex = GetCurrentSelectedUnit();
-        ICity cityOnHex = GetCityAtHex(selectedHex);
-
-        if (unitOnHex != null)
-        {
-            SelectUnit(unitOnHex);
-
-            // Show city management if there's also a city
-            if (cityOnHex != null)
-            {
-                ShowCityManagement(cityOnHex);
-            }
-            else
-            {
-                HideCityManagement();
-            }
-        }
-        else if (cityOnHex != null)
-        {
-            SelectCity(cityOnHex);
-            HideUnitPanel();
-        }
-        else
-        {
-            // Empty hex selected - clear everything
-            DeselectAll();
-        }
+    public void OnHexDeselected(Hex deselectedHex)
+    {
+        Debug.Log("Hex deselected");
     }
 
     void SelectUnit(IUnit unit)
     {
-        // Cancel any previous movement mode
         CancelMovementMode();
-
         selectedUnit = unit;
         ShowUnitInfo(unit);
-
-        // Automatically show movement range when unit is selected using MapManager
         ShowMovementRange(unit);
-
         Debug.Log($"Selected unit: {unit.UnitName}");
     }
 
@@ -333,25 +501,20 @@ public class GameHUD : MonoBehaviour
 
         if (mapManager != null && unitsManager != null)
         {
-            // Use MapManager's specialized method for showing unit movement options
             mapManager.ShowUnitMovementOptions(unit, unitsManager, movementNormalColor);
-
-            // Update current valid moves for local tracking
             currentValidMoves = unitsManager.GetValidMoves(unit);
-
-            Debug.Log($"Showing movement range via MapManager: {currentValidMoves.Count} valid moves for {unit.UnitName} (MP: {unit.Movement})");
+            Debug.Log($"Showing movement range: {currentValidMoves.Count} valid moves for {unit.UnitName}");
         }
     }
 
     void SelectCity(ICity city)
     {
         CancelMovementMode();
-        ClearAllHighlights(); // Clear any unit movement highlights
+        ClearAllHighlights();
         selectedCity = city;
         selectedUnit = null;
         ShowCityManagement(city);
 
-        // Show city work radius using MapManager
         var mapManager = gameManager?.MapManager;
         if (mapManager != null)
         {
@@ -362,7 +525,7 @@ public class GameHUD : MonoBehaviour
     void DeselectAll()
     {
         CancelMovementMode();
-        ClearAllHighlights(); // Clear any remaining highlights
+        ClearAllHighlights();
         HideAllPanels();
         selectedUnit = null;
         selectedCity = null;
@@ -394,23 +557,20 @@ public class GameHUD : MonoBehaviour
 
         isInMovementMode = true;
 
-        // Get valid moves if we don't have them
         var unitsManager = currentPlayerCiv?.CivManager?.UnitsManager;
         if (unitsManager != null)
         {
             currentValidMoves = unitsManager.GetValidMoves(selectedUnit);
         }
 
-        // Use MapManager's specialized method for movement mode highlighting
         var mapManager = gameManager?.MapManager;
         if (mapManager != null && unitsManager != null)
         {
             mapManager.ShowUnitInMovementMode(selectedUnit, unitsManager, movementNormalColor);
         }
 
-        Debug.Log($"Entered movement mode for {selectedUnit.UnitName} - Right-click to move");
+        Debug.Log($"Entered movement mode for {selectedUnit.UnitName}");
 
-        // Update UI to show movement mode
         if (unitNameText)
             unitNameText.text = $"[MOVE] {selectedUnit.UnitType}: {selectedUnit.UnitName}";
     }
@@ -420,18 +580,13 @@ public class GameHUD : MonoBehaviour
         if (!isInMovementMode) return;
 
         isInMovementMode = false;
-
-        // Clear all highlights when cancelling movement
         ClearAllHighlights();
 
-        // Hide hex info panel
         if (hexInfoPanel) hexInfoPanel.SetActive(false);
 
-        // Restore normal unit display
         if (selectedUnit != null && unitNameText)
             unitNameText.text = $"{selectedUnit.UnitType}: {selectedUnit.UnitName}";
 
-        // If unit is still selected and can move, show movement range again
         ShowMovementRange(selectedUnit);
     }
 
@@ -441,24 +596,8 @@ public class GameHUD : MonoBehaviour
         if (mapManager != null)
         {
             mapManager.ClearHighlights();
-            Debug.Log("All highlights cleared via MapManager");
         }
         currentValidMoves.Clear();
-    }
-
-    void ShowAttackRange(IUnit unit)
-    {
-        if (unit == null || !unit.IsCombatUnit()) return;
-
-        var mapManager = gameManager?.MapManager;
-        var unitsManager = currentPlayerCiv?.CivManager?.UnitsManager;
-
-        if (mapManager != null && unitsManager != null)
-        {
-            // Use MapManager's specialized method for attack range
-            mapManager.HighlightAttackRange(unit, attackRangeColor, unitsManager);
-            Debug.Log($"Showing attack range for {unit.UnitName}");
-        }
     }
 
     void OnCycleUnitsClicked()
@@ -487,44 +626,6 @@ public class GameHUD : MonoBehaviour
         return unitsOnSelectedHex[selectedUnitIndex];
     }
 
-    List<IUnit> GetAllUnitsAtHex(Hex hex)
-    {
-        List<IUnit> allUnits = new List<IUnit>();
-
-        if (currentPlayerCiv?.CivManager?.UnitsManager == null) return allUnits;
-
-        // Get player's units
-        var playerUnits = currentPlayerCiv.CivManager.UnitsManager.GetUnitsAt(hex);
-        if (playerUnits != null)
-            allUnits.AddRange(playerUnits);
-
-        // Get other civilizations' units (for visibility)
-        var allCivs = gameManager.CivsManager.GetAliveCivilizations();
-        foreach (var civ in allCivs)
-        {
-            if (civ.CivId != currentPlayerCiv.CivId && civ.CivManager?.UnitsManager != null)
-            {
-                var enemyUnits = civ.CivManager.UnitsManager.GetUnitsAt(hex);
-                if (enemyUnits != null)
-                    allUnits.AddRange(enemyUnits);
-            }
-        }
-
-        // Sort units: player units first, then by category (combat, then civilian)
-        return allUnits.OrderBy(u =>
-        {
-            if (u is Unit unit)
-            {
-                // Player units first (0), enemy units second (1)
-                int playerPriority = unit.name.Contains(currentPlayerCiv.CivName) ? 0 : 1;
-                // Combat units first (0), civilian units second (1)
-                int categoryPriority = u.IsCombatUnit() ? 0 : 1;
-                return playerPriority * 10 + categoryPriority;
-            }
-            return 999;
-        }).ToList();
-    }
-
     public void ShowUnitInfo(IUnit unit)
     {
         selectedUnit = unit;
@@ -549,7 +650,6 @@ public class GameHUD : MonoBehaviour
         if (unitMovementText)
             unitMovementText.text = $"Movement: {unit.Movement}/{unit.MaxMovement}";
 
-        // Update unit cycle display
         if (unitCycleText && unitsOnSelectedHex.Count > 1)
         {
             unitCycleText.text = $"{selectedUnitIndex + 1}/{unitsOnSelectedHex.Count}";
@@ -569,7 +669,10 @@ public class GameHUD : MonoBehaviour
     {
         if (unitActionButtons == null) return;
 
-        // Button 0: Move/Cancel Move
+        var turnManager = currentPlayerCiv?.CivManager?.CivTurnManager;
+        bool isSkipped = turnManager?.IsUnitSkipped(unit) ?? false;
+
+        // Button 0: Move/Cancel Move (always allow movement)
         if (unitActionButtons.Length > 0 && unitActionButtons[0])
         {
             var button = unitActionButtons[0];
@@ -587,22 +690,70 @@ public class GameHUD : MonoBehaviour
             }
         }
 
-        // Button 1: Attack
+        // Button 1: Attack OR Special Action (blocked by guard/sleep)
         if (unitActionButtons.Length > 1 && unitActionButtons[1])
         {
             var button = unitActionButtons[1];
-            button.interactable = unit.Attack > 0 && !unit.HasMoved;
             var buttonText = button.GetComponentInChildren<TextMeshProUGUI>();
-            if (buttonText) buttonText.text = "Attack";
+
+            if (unit.IsCombatUnit())
+            {
+                button.interactable = unit.Attack > 0 && !unit.HasMoved && !isSkipped;
+                if (buttonText) buttonText.text = "Attack";
+            }
+            else
+            {
+                var unitsManager = currentPlayerCiv?.CivManager?.UnitsManager;
+                switch (unit.UnitType)
+                {
+                    case UnitType.Settler:
+                        button.interactable = !unit.HasMoved && !isSkipped && unitsManager != null && unitsManager.CanSettleCity(unit);
+                        if (buttonText) buttonText.text = "Settle City";
+                        break;
+
+                    case UnitType.Worker:
+                        button.interactable = !unit.HasMoved && !isSkipped && unitsManager != null && unitsManager.CanBuildImprovement(unit);
+                        if (buttonText) buttonText.text = "Build Improvement";
+                        break;
+
+                    default:
+                        button.interactable = false;
+                        if (buttonText) buttonText.text = "No Action";
+                        break;
+                }
+            }
         }
 
-        // Button 2: Show Attack Range (for combat units)
+        // Button 2: Guard/Sleep
         if (unitActionButtons.Length > 2 && unitActionButtons[2])
         {
             var button = unitActionButtons[2];
-            button.interactable = unit.IsCombatUnit();
             var buttonText = button.GetComponentInChildren<TextMeshProUGUI>();
-            if (buttonText) buttonText.text = "Range";
+
+            button.interactable = !unit.HasMoved;
+
+            if (isSkipped)
+            {
+                if (unit.IsCombatUnit())
+                {
+                    if (buttonText) buttonText.text = "Guarding";
+                }
+                else
+                {
+                    if (buttonText) buttonText.text = "Sleeping";
+                }
+            }
+            else
+            {
+                if (unit.IsCombatUnit())
+                {
+                    if (buttonText) buttonText.text = "Guard";
+                }
+                else
+                {
+                    if (buttonText) buttonText.text = "Sleep";
+                }
+            }
         }
     }
 
@@ -615,74 +766,122 @@ public class GameHUD : MonoBehaviour
             case 0: // Move/Cancel Move
                 ToggleMovementMode();
                 break;
-            case 1: // Attack
-                Debug.Log($"Attack with {selectedUnit.UnitName}");
-                // TODO: Implement attack targeting
-                break;
-            case 2: // Show Attack Range
+
+            case 1: // Attack OR Special Action
                 if (selectedUnit.IsCombatUnit())
                 {
-                    ClearAllHighlights();
-                    ShowAttackRange(selectedUnit);
+                    Debug.Log($"Attack with {selectedUnit.UnitName}");
+                    // TODO: Implement attack targeting
+                }
+                else
+                {
+                    HandleCivilianAction(selectedUnit);
                 }
                 break;
+
+            case 2: // Guard/Sleep/Wake Up
+                HandleUnitStateAction(selectedUnit);
+                break;
+
             default:
                 Debug.Log($"Unit action {actionIndex} for {selectedUnit.UnitName}");
                 break;
         }
     }
 
-    // Rest of the existing methods remain the same...
-    void UpdateHUD()
+    void HandleUnitStateAction(IUnit unit)
     {
-        if (gameManager == null) return;
-        UpdateTurnPanel();
-        UpdatePlayerStats();
-        UpdateSelectionPanels();
-    }
+        var turnManager = currentPlayerCiv?.CivManager?.CivTurnManager;
+        if (turnManager == null) return;
 
-    void UpdateTurnPanel()
-    {
-        if (currentPlayerText && gameManager.CivsManager != null)
+        if (turnManager.IsUnitSkipped(unit))
         {
-            var aliveCivs = gameManager.CivsManager.GetAliveCivilizations();
-            if (aliveCivs.Count > 0)
+            // Unit is already guarded/sleeping - do nothing (let movement wake it up)
+            Debug.Log($"{unit.UnitName} is already in guard/sleep mode");
+        }
+        else
+        {
+            // Guard or Sleep unit
+            if (unit.IsCombatUnit())
             {
-                currentPlayerCiv = aliveCivs[0];
-                currentPlayerText.text = $"{currentPlayerCiv.CivName}'s Turn";
-                currentPlayerText.color = currentPlayerCiv.IsHuman ? player1Color : player2Color;
+                turnManager.SetUnitGuard(unit);
+            }
+            else
+            {
+                turnManager.SetUnitSleep(unit);
             }
         }
 
-        if (tourCounterText)
-            tourCounterText.text = $"Turn: {gameManager.CurrentTurn}";
-
-        if (endTurnButton)
-            endTurnButton.interactable = gameManager.CurrentGameState == GameState.Running;
+        // Update UI
+        ShowUnitInfo(unit);
     }
 
-    void UpdatePlayerStats()
+    void HandleCivilianAction(IUnit unit)
     {
-        if (currentPlayerCiv?.CivManager == null) return;
+        var unitsManager = currentPlayerCiv?.CivManager?.UnitsManager;
+        if (unitsManager == null)
+        {
+            Debug.LogError("No UnitsManager available for civilian action");
+            return;
+        }
 
-        var civManager = currentPlayerCiv.CivManager;
-        if (citiesText) citiesText.text = $"Cities: {civManager.GetCityCount()}";
-        if (goldText) goldText.text = $"Gold: {currentPlayerCiv.Gold}";
-        if (scienceText) scienceText.text = $"Science: {currentPlayerCiv.Science}";
-        if (cultureText) cultureText.text = $"Culture: {currentPlayerCiv.Culture}";
+        switch (unit.UnitType)
+        {
+            case UnitType.Settler:
+                AttemptSettleCity(unit, unitsManager);
+                break;
+
+            case UnitType.Worker:
+                AttemptBuildImprovement(unit, unitsManager);
+                break;
+
+            default:
+                Debug.Log($"No special action available for {unit.UnitType}");
+                break;
+        }
     }
 
-    void UpdateSelectionPanels()
+    void AttemptSettleCity(IUnit settler, IUnitsManager unitsManager)
     {
-        if (selectedUnit != null)
-            ShowUnitInfo(selectedUnit);
-        else
-            HideUnitPanel();
+        bool success = unitsManager.SettleCity(settler);
 
-        if (selectedCity != null)
-            ShowCityManagement(selectedCity);
+        if (success)
+        {
+            // Settler was consumed, clear selection and auto-select new city
+            DeselectAll();
+
+            // Find and select the newly created city
+            var settlementHex = (Hex)settler.CurrentHex;
+            var mapManager = gameManager?.MapManager;
+            if (mapManager != null)
+            {
+                mapManager.SelectHex(settlementHex);
+            }
+        }
         else
-            HideCityManagement();
+        {
+            // Show failure reason to player
+            string reason = unitsManager.GetSettleFailureReason(settler);
+            Debug.LogWarning($"Settlement failed: {reason}");
+            // TODO: Show UI popup with failure reason
+        }
+    }
+
+    void AttemptBuildImprovement(IUnit worker, IUnitsManager unitsManager)
+    {
+        bool success = unitsManager.BuildImprovement(worker);
+
+        if (success)
+        {
+            Debug.Log($"Improvement built successfully by {worker.UnitName}");
+            // Update UI to reflect worker's spent movement
+            ShowUnitInfo(worker);
+        }
+        else
+        {
+            Debug.LogWarning($"Cannot build improvement with {worker.UnitName}");
+            // TODO: Show UI feedback about why improvement can't be built
+        }
     }
 
     public void ShowCityManagement(ICity city)
@@ -705,7 +904,7 @@ public class GameHUD : MonoBehaviour
             if (currentProductionName) currentProductionName.text = currentProduction.DisplayName;
             if (turnRemaining)
             {
-                int turnsLeft = currentProduction.TurnsRemaining(yields.production);
+                int turnsLeft = city.GetTurnsRemaining();
                 turnRemaining.text = $"{turnsLeft} turns";
             }
         }
@@ -717,24 +916,41 @@ public class GameHUD : MonoBehaviour
 
         UpdateBuildingsList(city);
         UpdateUnitsList(city);
+        UpdateConstructedBuildingsList(city);
     }
 
     void UpdateBuildingsList(ICity city)
     {
         if (buildingsScrollView == null || buildingItemPrefab == null) return;
 
+        // Clear existing items
         foreach (Transform child in buildingsScrollView.content)
             Destroy(child.gameObject);
 
-        var buildings = city.ConstructedBuildings;
-        foreach (string buildingId in buildings)
+        // Show available buildings for production
+        var availableBuildings = city.GetAvailableBuildingsForProduction();
+        Debug.Log($"Available buildings count: {availableBuildings.Count}");
+        foreach (var building in availableBuildings)
+        {
+            CreateProductionItem(building, false, true, buildingsScrollView.content, buildingItemPrefab); // not constructed, clickable
+        }
+    }
+
+    void UpdateConstructedBuildingsList(ICity city)
+    {
+        if (constructedBuildingsScrollView == null) return;
+
+        foreach (Transform child in constructedBuildingsScrollView.content)
+            Destroy(child.gameObject);
+
+        var constructedBuildings = city.ConstructedBuildings;
+        Debug.Log($"Constructed buildings count: {constructedBuildings.Count}");
+        foreach (string buildingId in constructedBuildings)
         {
             var building = BuildingDatabase.GetBuilding(buildingId);
             if (building != null)
             {
-                GameObject item = Instantiate(buildingItemPrefab, buildingsScrollView.content);
-                var textComponent = item.GetComponent<TextMeshProUGUI>();
-                if (textComponent) textComponent.text = building.DisplayName;
+                CreateProductionItem(building, true, false, constructedBuildingsScrollView.content, buildingItemPrefab);
             }
         }
     }
@@ -743,16 +959,97 @@ public class GameHUD : MonoBehaviour
     {
         if (unitsScrollView == null || unitItemPrefab == null) return;
 
+        // Clear existing items
         foreach (Transform child in unitsScrollView.content)
             Destroy(child.gameObject);
 
-        if (city.Population > 0)
+        // Show available units for production
+        var availableUnits = city.GetAvailableUnitsForProduction();
+        foreach (var unit in availableUnits)
         {
-            GameObject item = Instantiate(unitItemPrefab, unitsScrollView.content);
-            var textComponent = item.GetComponent<TextMeshProUGUI>();
-            if (textComponent) textComponent.text = "City Garrison";
+            CreateProductionItem(unit, false, true, unitsScrollView.content, unitItemPrefab); // not constructed, clickable
         }
     }
+
+    void CreateProductionItem(IProductionItem item, bool isConstructed, bool isClickable, Transform parent, GameObject prefab)
+    {
+        GameObject itemObj = Instantiate(prefab, parent);
+
+        // Set icon
+        var iconImage = itemObj.transform.Find("Image")?.GetComponent<UnityEngine.UI.Image>();
+        if (iconImage && item.Icon)
+            iconImage.sprite = item.Icon;
+
+        // Set text
+        var textComponent = itemObj.GetComponentInChildren<TextMeshProUGUI>();
+        if (textComponent)
+        {
+            string displayText = item.DisplayName;
+            
+            textComponent.text = displayText;
+        }
+
+        var button = itemObj.GetComponent<UnityEngine.UI.Button>();
+        if (button == null)
+            button = itemObj.AddComponent<UnityEngine.UI.Button>();
+
+        if (isClickable && !isConstructed)
+        {
+            button.onClick.AddListener(() => OnProductionItemClicked(item));
+        }
+        else
+        {
+            button.interactable = false; // Disable button if not clickable
+        }
+    }
+
+    void OnProductionItemClicked(IProductionItem item)
+    {
+        if (selectedCity != null)
+        {
+            selectedCity.ChangeProduction(item);
+            ShowCityManagement(selectedCity); // Refresh UI
+
+            //// Update turn state since city now has production
+            //var turnManager = currentPlayerCiv?.CivManager?.CivTurnManager;
+            //turnManager?.CheckTurnState();
+        }
+    }
+
+    
+
+   
+
+
+   
+
+
+    void SubscribeToTechEvents()
+    {
+        // Subscribe to current civ's tech manager
+        if (currentPlayerCiv?.CivManager?.TechManager != null)
+        {
+            currentPlayerCiv.CivManager.TechManager.OnTechnologyResearched += OnTechnologyResearched;
+        }
+    }
+
+    void OnTechnologyResearched(ITechnology technology)
+    {
+        Debug.Log($"Technology {technology.TechName} researched - refreshing production lists");
+
+        // Refresh city management UI if a city is selected
+        if (selectedCity != null)
+        {
+            ShowCityManagement(selectedCity);
+        }
+    }
+
+
+    
+
+
+
+
 
     public void HideUnitPanel()
     {
@@ -766,56 +1063,12 @@ public class GameHUD : MonoBehaviour
         if (cityManagementPanel) cityManagementPanel.SetActive(false);
     }
 
+  
+
     void HideAllPanels()
     {
         HideUnitPanel();
         HideCityManagement();
-    }
-
-    public void OnHexDeselected(Hex deselectedHex)
-    {
-        Debug.Log("Hex deselected");
-    }
-
-    ICity GetCityAtHex(Hex hex)
-    {
-        if (currentPlayerCiv?.CivManager?.CitiesManager == null) return null;
-
-        var cities = currentPlayerCiv.CivManager.CitiesManager.GetAllCities();
-        foreach (var city in cities)
-        {
-            if (city.CenterHex != null && city.CenterHex.Q == hex.Q && city.CenterHex.R == hex.R)
-                return city;
-        }
-        return null;
-    }
-
-    void OnEndTurnClicked()
-    {
-        if (gameManager && gameManager.CurrentGameState == GameState.Running)
-        {
-            CancelMovementMode(); // Cancel any ongoing movement
-            ClearAllHighlights(); // Clear any remaining highlights
-            gameManager.NextTurn();
-        }
-    }
-
-    void OnGameStateChanged(GameState newState)
-    {
-        Debug.Log($"Game state changed to: {newState}");
-        UpdateHUD();
-    }
-
-    void OnTurnChanged(int newTurn)
-    {
-        Debug.Log($"Turn changed to: {newTurn}");
-        CancelMovementMode(); // Cancel movement when turn changes
-        ClearAllHighlights(); // Clear any remaining highlights
-
-        // If a unit is selected, show its movement range again (units get movement back)
-        ShowMovementRange(selectedUnit);
-
-        UpdateHUD();
     }
 
     void OnDestroy()
@@ -824,6 +1077,8 @@ public class GameHUD : MonoBehaviour
         {
             gameManager.OnGameStateChanged -= OnGameStateChanged;
             gameManager.OnTurnChanged -= OnTurnChanged;
+            gameManager.OnCivTurnStarted -= OnCivTurnStarted;
+            gameManager.OnCivTurnEnded -= OnCivTurnEnded;
         }
 
         var mapManager = gameManager?.MapManager;

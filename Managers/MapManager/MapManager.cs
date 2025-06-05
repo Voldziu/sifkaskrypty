@@ -82,6 +82,10 @@ public class MapManager : MonoBehaviour, IMapManager
 
     void HandleInput()
     {
+
+        // Checks if pointer is over UI elements
+        if (UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+            return;
         // Track mouse down position
         if (Input.GetMouseButtonDown(0))
         {
@@ -313,7 +317,7 @@ public class MapManager : MonoBehaviour, IMapManager
     {
         if (hex == null)
         {
-            Debug.LogWarning("Trying to highlight null hex");
+           // Debug.LogWarning("Trying to highlight null hex");
             return;
         }
 
@@ -334,7 +338,7 @@ public class MapManager : MonoBehaviour, IMapManager
             if (!originalColors.ContainsKey(hex))
             {
                 originalColors[hex] = spriteRenderer.color;
-                Debug.Log($"Stored original color for hex ({hex.Q}, {hex.R}): {spriteRenderer.color}");
+                //Debug.Log($"Stored original color for hex ({hex.Q}, {hex.R}): {spriteRenderer.color}");
             }
 
             spriteRenderer.color = color;
@@ -343,7 +347,7 @@ public class MapManager : MonoBehaviour, IMapManager
                 highlightedHexes.Add(hex);
             }
 
-            Debug.Log($"Highlighted hex ({hex.Q}, {hex.R}) with color {color}");
+            //Debug.Log($"Highlighted hex ({hex.Q}, {hex.R}) with color {color}");
         }
         else
         {
@@ -366,13 +370,13 @@ public class MapManager : MonoBehaviour, IMapManager
             {
                 Color originalColor = originalColors[hex];
                 spriteRenderer.color = originalColor;
-                Debug.Log($"Restored hex ({hex.Q}, {hex.R}) to original color: {originalColor}");
+                //Debug.Log($"Restored hex ({hex.Q}, {hex.R}) to original color: {originalColor}");
             }
             else
             {
                 // Default fallback to white
                 spriteRenderer.color = Color.white;
-                Debug.Log($"Restored hex ({hex.Q}, {hex.R}) to default white (no original color stored)");
+               // Debug.Log($"Restored hex ({hex.Q}, {hex.R}) to default white (no original color stored)");
             }
         }
         else
@@ -386,12 +390,12 @@ public class MapManager : MonoBehaviour, IMapManager
                 if (originalColors.ContainsKey(hex))
                 {
                     childRenderer.color = originalColors[hex];
-                    Debug.Log($"Restored hex ({hex.Q}, {hex.R}) via child SpriteRenderer");
+                    //Debug.Log($"Restored hex ({hex.Q}, {hex.R}) via child SpriteRenderer");
                 }
                 else
                 {
                     childRenderer.color = Color.white;
-                    Debug.Log($"Restored hex ({hex.Q}, {hex.R}) to white via child SpriteRenderer");
+                   // Debug.Log($"Restored hex ({hex.Q}, {hex.R}) to white via child SpriteRenderer");
                 }
             }
             else

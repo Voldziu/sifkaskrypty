@@ -32,6 +32,9 @@ public class Unit : MonoBehaviour, IUnit
     public GameObject unitPrefab;
     public GameObject unitVisual;
 
+    [Header("UI")]
+    public Sprite icon;
+
     // Properties
     public string UnitId => unitId;
     public string UnitName => unitName;

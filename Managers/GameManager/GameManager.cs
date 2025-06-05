@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class GameManager : MonoBehaviour, IGameManager
 {
@@ -10,8 +10,13 @@ public class GameManager : MonoBehaviour, IGameManager
     public int maxTurns = 500;
     public bool autoStartGame = true;
 
+    [Header("Hot-seat Turn System")]
+    public float turnTransitionDelay = 1f; // Delay between civ turns
+
     private GameState currentGameState = GameState.Initializing;
     private int currentTurn = 0;
+    private int currentCivIndex = 0; // Which civ's turn it is
+    private bool waitingForNextCiv = false;
 
     // Properties
     public GameState CurrentGameState => currentGameState;
@@ -19,47 +24,60 @@ public class GameManager : MonoBehaviour, IGameManager
     public IMapManager MapManager => mapManager;
     public ICivsManager CivsManager => civsManager;
 
+    // Hot-seat properties
+    public ICivilization CurrentCivilization
+    {
+        get
+        {
+            var aliveCivs = civsManager?.GetAliveCivilizations();
+            if (aliveCivs != null && aliveCivs.Count > 0 && currentCivIndex < aliveCivs.Count)
+                return aliveCivs[currentCivIndex];
+            return null;
+        }
+    }
+
+    public bool IsCurrentCivTurn(ICivilization civ)
+    {
+        return CurrentCivilization?.CivId == civ?.CivId;
+    }
+
     // Events
     public event System.Action<GameState> OnGameStateChanged;
     public event System.Action<int> OnTurnChanged;
+    // Add new events for UI communication
+    public event System.Action<ICivilization> OnCivTurnStarted;
+    public event System.Action<ICivilization> OnCivTurnEnded;
 
     void Start()
     {
         InitializeGame();
-
-        
     }
 
     void InitializeGame()
     {
         Debug.Log("=== INITIALIZING GAME ===");
 
-        // Validate dependencies
         if (!ValidateDependencies())
         {
             Debug.LogError("GameManager: Missing dependencies! Cannot initialize game.");
             return;
         }
 
-        // Initialize managers with proper timing
-        StartCoroutine(InitializeManagersSequentially(() => {
-            // This callback runs when initialization is complete
-            if (autoStartGame)
-            {
-                StartGame();
-            }
-        }));
+        // Use coroutine for proper initialization timing
+        StartCoroutine(InitializeManagersSequentially());
     }
 
-    System.Collections.IEnumerator InitializeManagersSequentially(System.Action onComplete = null)
+    System.Collections.IEnumerator InitializeManagersSequentially()
     {
-        // Initialize MapManager first
+        Debug.Log("Starting sequential manager initialization...");
+
+        // Step 1: Initialize MapManager first
         Debug.Log("Initializing MapManager...");
         mapManager.Initialize();
 
-        // Wait for hex map to be generated
+        // Step 2: Wait for hex map to be generated
         Debug.Log("Waiting for hex map generation...");
-        float timeout = 10f; // 10 second timeout
+        float timeout = 10f;
         float elapsed = 0f;
 
         while (mapManager.HexMap.hexes.Count == 0 && elapsed < timeout)
@@ -79,14 +97,48 @@ public class GameManager : MonoBehaviour, IGameManager
             yield break;
         }
 
-        Debug.Log($"Hex map ready with {mapManager.HexMap.hexes.Count} hexes");
+        Debug.Log($"✓ Hex map ready with {mapManager.HexMap.hexes.Count} hexes");
 
-        // Now initialize CivsManager with the ready map
+        // Step 3: Initialize CivsManager with the ready map
         Debug.Log("Initializing CivsManager...");
-        InitializeManagers();
+        civsManager.Initialize(mapManager);
 
+        // Step 4: Wait for civilizations to be created
+        Debug.Log("Waiting for civilizations to be created...");
+        timeout = 5f;
+        elapsed = 0f;
 
-        Debug.Log("All managers initialized successfully");
+        while (civsManager.CivCount == 0 && elapsed < timeout)
+        {
+            yield return new WaitForSeconds(0.1f);
+            elapsed += 0.1f;
+
+            if (elapsed % 1f < 0.1f) // Log every second
+            {
+                Debug.Log($"Waiting for civs... Elapsed: {elapsed:F1}s, Civs: {civsManager.CivCount}");
+            }
+        }
+
+        if (civsManager.CivCount == 0)
+        {
+            Debug.LogError("Civilization creation failed or timed out!");
+            yield break;
+        }
+
+        Debug.Log($"✓ Civilizations ready: {civsManager.CivCount} created");
+
+        // Step 5: Everything is ready, start the game
+        yield return new WaitForSeconds(0.1f); // Small delay to ensure everything is settled
+
+        if (autoStartGame)
+        {
+            Debug.Log("All managers initialized successfully - starting game...");
+            StartGame();
+        }
+        else
+        {
+            Debug.Log("All managers initialized successfully - ready to start game manually");
+        }
     }
 
     bool ValidateDependencies()
@@ -108,10 +160,10 @@ public class GameManager : MonoBehaviour, IGameManager
 
     void InitializeManagers()
     {
-        // Initialize MapManager first (everything depends on the map)
+        // Initialize MapManager first
         mapManager.Initialize();
 
-        // Initialize CivsManager (depends on map being ready)
+        // Initialize CivsManager
         civsManager.Initialize(mapManager);
 
         Debug.Log("All managers initialized");
@@ -125,7 +177,7 @@ public class GameManager : MonoBehaviour, IGameManager
             return;
         }
 
-        // Double-check that we have civilizations and hexes
+        // Validate everything is ready
         if (civsManager.CivCount == 0)
         {
             Debug.LogError("Cannot start game: No civilizations created!");
@@ -138,12 +190,147 @@ public class GameManager : MonoBehaviour, IGameManager
             return;
         }
 
-        SetGameState(GameState.Running);
+        // Start with first civilization
         currentTurn = 1;
-        OnTurnChanged?.Invoke(currentTurn);
+        currentCivIndex = 0;
+
+        SetGameState(GameState.Running);
+
+        // Start the first civilization's turn
+        StartCurrentCivTurn();
 
         Debug.Log("=== GAME STARTED ===");
         Debug.Log($"Turn {currentTurn} - {civsManager.CivCount} civilizations, {mapManager.HexMap.hexes.Count} hexes");
+    }
+
+    void StartCurrentCivTurn()
+    {
+        var currentCiv = CurrentCivilization;
+        if (currentCiv == null)
+        {
+            Debug.LogError("No current civilization to start turn for!");
+            return;
+        }
+
+        // Reset movement for current civ's units
+        var unitsManager = currentCiv.CivManager?.UnitsManager;
+        if (unitsManager != null)
+        {
+            unitsManager.ResetMovement();
+        }
+
+        waitingForNextCiv = false;
+
+        OnCivTurnStarted?.Invoke(currentCiv);
+        Debug.Log($"=== {currentCiv.CivName}'s Turn Started (Turn {currentTurn}) ===");
+    }
+
+    public void EndCurrentCivTurn()
+    {
+        if (currentGameState != GameState.Running || waitingForNextCiv)
+        {
+            Debug.LogWarning("Cannot end turn - game is not running or already waiting");
+            return;
+        }
+
+        var currentCiv = CurrentCivilization;
+        if (currentCiv == null)
+        {
+            Debug.LogWarning("No current civilization to end turn for");
+            return;
+        }
+
+        waitingForNextCiv = true;
+
+        // Process only the current civilization
+        Debug.Log($"Processing turn for {currentCiv.CivName}...");
+
+        var civManager = currentCiv.CivManager;
+        civManager?.ProcessTurn();
+
+        OnCivTurnEnded?.Invoke(currentCiv);
+        Debug.Log($"=== {currentCiv.CivName}'s Turn Ended ===");
+
+        // Move to next civilization
+        Invoke(nameof(AdvanceToNextCiv), turnTransitionDelay);
+    }
+
+    void AdvanceToNextCiv()
+    {
+        var aliveCivs = civsManager.GetAliveCivilizations();
+
+        if (aliveCivs.Count == 0)
+        {
+            Debug.LogError("No alive civilizations remaining!");
+            EndGame();
+            return;
+        }
+
+        // Move to next civ
+        currentCivIndex++;
+
+        // Check if we've completed a full round of all civs
+        if (currentCivIndex >= aliveCivs.Count)
+        {
+            // All civs have had their turn, advance to next turn
+            currentCivIndex = 0;
+            currentTurn++;
+            OnTurnChanged?.Invoke(currentTurn);
+            Debug.Log($"=== TURN {currentTurn} STARTED ===");
+
+            // Check for game end conditions
+            CheckGameEndConditions();
+            if (currentGameState != GameState.Running)
+                return;
+        }
+
+        // Start next civ's turn
+        StartCurrentCivTurn();
+    }
+
+    // This method is called by the UI "End Turn" button
+    public void NextTurn()
+    {
+        EndCurrentCivTurn();
+    }
+
+    // Legacy method - now processes only current civ
+    public void ProcessTurn()
+    {
+        // This now only processes the current civilization
+        var currentCiv = CurrentCivilization;
+        if (currentCiv?.CivManager != null)
+        {
+            currentCiv.CivManager.ProcessTurn();
+        }
+    }
+
+    void CheckGameEndConditions()
+    {
+        // Check max turns
+        if (currentTurn >= maxTurns)
+        {
+            Debug.Log("Maximum turns reached - ending game");
+            EndGame();
+            return;
+        }
+
+        // Check victory conditions
+        var winner = civsManager.CheckVictoryConditions();
+        if (winner != null)
+        {
+            Debug.Log($"Victory! {winner.CivName} has won the game!");
+            EndGame();
+            return;
+        }
+
+        // Check if only one civ remains
+        if (civsManager.GetAliveCivCount() <= 1)
+        {
+            Debug.Log("Only one civilization remains - ending game");
+            EndGame();
+            return;
+        }
     }
 
     public void PauseGame()
@@ -177,66 +364,6 @@ public class GameManager : MonoBehaviour, IGameManager
         }
     }
 
-    public void NextTurn()
-    {
-        if (currentGameState != GameState.Running)
-        {
-            Debug.LogWarning("Cannot advance turn - game is not running");
-            return;
-        }
-
-        ProcessTurn();
-
-        currentTurn++;
-        OnTurnChanged?.Invoke(currentTurn);
-
-        Debug.Log($"=== TURN {currentTurn} ===");
-
-        // Check win conditions
-        CheckGameEndConditions();
-    }
-
-    public void ProcessTurn()
-    {
-        Debug.Log($"Processing turn {currentTurn}...");
-
-        // Process all civilizations
-        civsManager.ProcessTurn();
-
-        // Other turn processing can go here
-        // (random events, barbarians, etc.)
-
-        Debug.Log($"Turn {currentTurn} processing complete");
-    }
-
-    void CheckGameEndConditions()
-    {
-        // Check max turns
-        if (currentTurn >= maxTurns)
-        {
-            Debug.Log("Maximum turns reached - ending game");
-            EndGame();
-            return;
-        }
-
-        // Check victory conditions
-        var winner = civsManager.CheckVictoryConditions();
-        if (winner != null)
-        {
-            Debug.Log($"Victory! {winner.CivName} has won the game!");
-            EndGame();
-            return;
-        }
-
-        // Check if only one civ remains
-        if (civsManager.GetAliveCivCount() <= 1)
-        {
-            Debug.Log("Only one civilization remains - ending game");
-            EndGame();
-            return;
-        }
-    }
-
     void SetGameState(GameState newState)
     {
         if (currentGameState != newState)
@@ -244,13 +371,13 @@ public class GameManager : MonoBehaviour, IGameManager
             var oldState = currentGameState;
             currentGameState = newState;
             OnGameStateChanged?.Invoke(newState);
-            Debug.Log($"Game state changed: {oldState} ? {newState}");
+            Debug.Log($"Game state changed: {oldState} → {newState}");
         }
     }
 
     void Update()
     {
-        // Handle debug input
+        // Debug hotkeys
         if (Input.GetKeyDown(KeyCode.N) && currentGameState == GameState.Running)
         {
             NextTurn();
@@ -258,13 +385,37 @@ public class GameManager : MonoBehaviour, IGameManager
 
         if (Input.GetKeyDown(KeyCode.P))
         {
-            Debug.Log("Toggling pause/resume");
             if (currentGameState == GameState.Running)
                 PauseGame();
             else if (currentGameState == GameState.Paused)
                 ResumeGame();
         }
+
+        // Debug key to force start game
+        if (Input.GetKeyDown(KeyCode.G) && currentGameState == GameState.Initializing)
+        {
+            StartGame();
+        }
     }
 
-    
+    // Utility methods for UI
+    public string GetCurrentCivName()
+    {
+        return CurrentCivilization?.CivName ?? "None";
+    }
+
+    public int GetCivTurnOrder()
+    {
+        var aliveCivs = civsManager?.GetAliveCivilizations();
+        if (aliveCivs != null && aliveCivs.Count > 0)
+        {
+            return currentCivIndex + 1;
+        }
+        return 0;
+    }
+
+    public int GetTotalAliveCivs()
+    {
+        return civsManager?.GetAliveCivCount() ?? 0;
+    }
 }

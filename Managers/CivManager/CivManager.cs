@@ -6,12 +6,16 @@ public class CivManager : MonoBehaviour, ICivManager
     public string civId;
     public string civName;
 
+    [Header("Parent")]
+    public ICivsManager civsManager;
+
     [Header("Sub-Managers")]
     public CitiesManager citiesManager;
     public UnitsManager unitsManager;
     public TechManager techManager;
     public DiplomacyManager diplomacyManager;
     public ResourceManager resourceManager;
+    public CivTurnManager civTurnManager;
 
     [Header("Resource Settings")]
     public float goldPerTurn = 0f;
@@ -21,15 +25,20 @@ public class CivManager : MonoBehaviour, ICivManager
 
     private ICivilization civilization;
     private IMapManager mapManager;
-    private ICivsManager civsManager;
+
 
     // Properties
+
+    public ICivsManager CivsManager => civsManager;
     public ICivilization Civilization => civilization;
     public ICitiesManager CitiesManager => citiesManager;
     public IUnitsManager UnitsManager => unitsManager;
     public ITechManager TechManager => techManager;
     public IDiplomacyManager DiplomacyManager => diplomacyManager;
     public IResourceManager ResourceManager => resourceManager;
+
+    public ICivTurnManager CivTurnManager => civTurnManager;
+
 
     public void Initialize(ICivilization civilization, IMapManager mapManager, ICivsManager civsManager)
     {
@@ -45,6 +54,7 @@ public class CivManager : MonoBehaviour, ICivManager
         SetupTechManager();
         SetupDiplomacyManager();
         SetupResourceManager();
+        SetupCivTurnManager();
 
         // NO automatic city creation - we'll let units create cities
         Debug.Log($"CivManager initialized for {civilization.CivName}");
@@ -106,6 +116,14 @@ public class CivManager : MonoBehaviour, ICivManager
         }
 
         resourceManager.Initialize(civilization, mapManager);
+    }
+    void SetupCivTurnManager()
+    {
+        if (civTurnManager == null)
+        {
+            civTurnManager = gameObject.AddComponent<CivTurnManager>();
+        }
+        civTurnManager.Initialize(civilization, mapManager);
     }
 
     void CreateCityPrefab()

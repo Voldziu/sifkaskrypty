@@ -2,12 +2,17 @@ public interface ICivManager
 {
     ICivilization Civilization { get; }
 
+    // Parent
+    ICivsManager CivsManager { get; }
+
     // Sub-managers
+
     ICitiesManager CitiesManager { get; }
     IUnitsManager UnitsManager { get; }
     ITechManager TechManager { get; }
     IDiplomacyManager DiplomacyManager { get; }
     IResourceManager ResourceManager { get; }
+    ICivTurnManager CivTurnManager { get; }
 
     // Initialization
     void Initialize(ICivilization civilization, IMapManager mapManager, ICivsManager civsManager);

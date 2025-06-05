@@ -23,6 +23,7 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
     // Properties
     public List<IUnit> Units => units;
     public int UnitCount => units.Count;
+    public UnitPrefabData[] UnitPrefabs => unitPrefabs;
 
     // Events
     public event System.Action<IUnit> OnUnitCreated;
@@ -409,6 +410,262 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
             
             unit.Movement = unit.MaxMovement;
         }
+    }
+
+  
+    public bool CanSettleCity(IUnit settler)
+    {
+        if (settler.UnitType != UnitType.Settler) return false;
+        if (settler.CurrentHex == null) return false;
+
+        var currentHex = (Hex)settler.CurrentHex;
+
+        // Check terrain suitability
+        if (currentHex.IsObstacle) return false;
+        if (currentHex.Terrain == TerrainType.Mountain || currentHex.Terrain == TerrainType.Ocean) return false;
+
+        // Check if hex is already worked
+        if (currentHex.IsWorked) return false;
+
+        // Check distance from ALL cities (including other civs)
+        var civsManager = civilization.CivManager?.CivsManager;
+        if (civsManager != null)
+        {
+            var allCivs = civsManager.GetAliveCivilizations();
+            foreach (var civ in allCivs)
+            {
+                var citiesManager = civ.CivManager?.CitiesManager;
+                if (citiesManager != null)
+                {
+                    var cities = citiesManager.GetAllCities();
+                    foreach (var city in cities)
+                    {
+                        var cityHex = (Hex)city.CenterHex;
+                        if (cityHex != null)
+                        {
+                            int distance = mapManager.GetDistance(currentHex, cityHex);
+                            if (distance < 4) // Minimum 4 hex distance
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public string GetSettleFailureReason(IUnit settler)
+    {
+        if (settler.UnitType != UnitType.Settler) return "Not a settler unit";
+        if (settler.CurrentHex == null) return "No current hex";
+
+        var currentHex = (Hex)settler.CurrentHex;
+
+        if (currentHex.IsObstacle || currentHex.Terrain == TerrainType.Mountain || currentHex.Terrain == TerrainType.Ocean)
+        {
+            return "Invalid terrain - cannot settle on obstacles, mountains, or ocean";
+        }
+
+        if (currentHex.IsWorked)
+        {
+            return "Hex is already worked by another city";
+        }
+
+        // Check city distance
+        var civsManager = civilization.CivManager?.CivsManager;
+        if (civsManager != null)
+        {
+            var allCivs = civsManager.GetAliveCivilizations();
+            foreach (var civ in allCivs)
+            {
+                var citiesManager = civ.CivManager?.CitiesManager;
+                if (citiesManager != null)
+                {
+                    var cities = citiesManager.GetAllCities();
+                    foreach (var city in cities)
+                    {
+                        var cityHex = (Hex)city.CenterHex;
+                        if (cityHex != null)
+                        {
+                            int distance = mapManager.GetDistance(currentHex, cityHex);
+                            if (distance < 4)
+                            {
+                                return $"Too close to {city.CityName} (distance: {distance}, minimum: 4)";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return "Unknown reason";
+    }
+
+    public string GenerateCityName()
+    {
+        var citiesManager = civilization.CivManager?.CitiesManager;
+        int cityCount = citiesManager?.GetCityCount() ?? 0;
+
+        string baseName = civilization.CivName;
+
+        // Simple naming pattern
+        switch (cityCount)
+        {
+            case 0: return $"{baseName} Capital";
+            case 1: return $"New {baseName}";
+            case 2: return $"{baseName} Harbor";
+            case 3: return $"{baseName} Valley";
+            default: return $"{baseName} City {cityCount + 1}";
+        }
+    }
+
+    public bool SettleCity(IUnit settler, string cityName = null)
+    {
+        if (!CanSettleCity(settler))
+        {
+            Debug.LogWarning($"Cannot settle city: {GetSettleFailureReason(settler)}");
+            return false;
+        }
+
+        var settlementHex = settler.CurrentHex;
+        var citiesManager = civilization.CivManager?.CitiesManager;
+
+        if (citiesManager == null)
+        {
+            Debug.LogError("No CitiesManager available for settling");
+            return false;
+        }
+
+        // Generate city name if not provided
+        if (string.IsNullOrEmpty(cityName))
+        {
+            cityName = GenerateCityName();
+        }
+
+        Debug.Log($"Settling {cityName} at ({settlementHex.Q}, {settlementHex.R})");
+
+        // Create the city using existing CitiesManager
+        var newCity = citiesManager.FoundCity(cityName, settlementHex);
+
+        if (newCity != null)
+        {
+            Debug.Log($"Successfully settled {cityName}!");
+
+            // Remove the settler unit
+            bool removed = RemoveUnit(settler.UnitId);
+            if (removed)
+            {
+                Debug.Log($"Settler {settler.UnitName} consumed in settling");
+            }
+
+            return true;
+        }
+        else
+        {
+            Debug.LogError($"Failed to found city {cityName}");
+            return false;
+        }
+    }
+
+    // ============ WORKER IMPROVEMENT METHODS ============
+    public bool CanBuildImprovement(IUnit worker)
+    {
+        if (worker.UnitType != UnitType.Worker) return false;
+        if (worker.CurrentHex == null) return false;
+
+        var currentHex = (Hex)worker.CurrentHex;
+
+        // Check if hex can have improvements
+        if (currentHex.IsObstacle) return false;
+        if (currentHex.Improvement != ImprovementType.None) return false; // Already has improvement
+
+        // Check if terrain supports improvements
+        switch (currentHex.Terrain)
+        {
+            case TerrainType.Grassland:
+            case TerrainType.Plains:
+            case TerrainType.Desert:
+            case TerrainType.Hill:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public ImprovementType GetBestImprovementForHex(IHex hex)
+    {
+        var concreteHex = (Hex)hex;
+
+        // Auto-select improvement based on terrain and resources
+        switch (concreteHex.Resource)
+        {
+            case ResourceType.Additional:
+                switch (concreteHex.additionalResource)
+                {
+                    case AdditionalResourceType.Cattle:
+                    case AdditionalResourceType.Sheep:
+                        return ImprovementType.Pasture;
+                    case AdditionalResourceType.Fish:
+                        return ImprovementType.FishingBoats;
+                    case AdditionalResourceType.Wheat:
+                        return ImprovementType.Farm;
+                    default:
+                        break;
+                }
+                break;
+            case ResourceType.Strategic:
+            case ResourceType.Luxury:
+                return ImprovementType.Mine;
+        }
+
+        // Default based on terrain
+        switch (concreteHex.Terrain)
+        {
+            case TerrainType.Grassland:
+            case TerrainType.Plains:
+                return ImprovementType.Farm;
+            case TerrainType.Hill:
+                return ImprovementType.Mine;
+            case TerrainType.Desert:
+                return ImprovementType.TradingPost;
+            default:
+                return ImprovementType.None;
+        }
+    }
+
+    public bool BuildImprovement(IUnit worker, ImprovementType improvementType = ImprovementType.None)
+    {
+        if (!CanBuildImprovement(worker))
+        {
+            Debug.LogWarning($"Cannot build improvement: Worker cannot build here");
+            return false;
+        }
+
+        var targetHex = (Hex)worker.CurrentHex;
+
+        // Auto-select improvement if not specified
+        if (improvementType == ImprovementType.None)
+        {
+            improvementType = GetBestImprovementForHex(targetHex);
+        }
+
+        if (improvementType == ImprovementType.None)
+        {
+            Debug.LogWarning("No suitable improvement for this hex");
+            return false;
+        }
+
+        // Set improvement on hex
+        targetHex.Improvement = improvementType;
+
+        // Worker consumes movement
+        worker.Movement = 0;
+
+        Debug.Log($"Built {improvementType} at ({targetHex.Q}, {targetHex.R})");
+        return true;
     }
 
     // Build unit methods

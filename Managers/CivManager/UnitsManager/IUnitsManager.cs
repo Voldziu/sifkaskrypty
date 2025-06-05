@@ -5,6 +5,8 @@ public interface IUnitsManager
     List<IUnit> Units { get; }
     int UnitCount { get; }
 
+    UnitPrefabData[] UnitPrefabs { get; }
+
     // Initialization
     void Initialize(ICivilization civilization, IMapManager mapManager);
 
@@ -26,6 +28,28 @@ public interface IUnitsManager
     // Turn Processing
     void ProcessTurn();
     void ResetMovement();
+
+
+
+    // City handling methods
+
+    public bool CanSettleCity(IUnit settler);
+    public string GetSettleFailureReason(IUnit settler);
+    public string GenerateCityName();
+    public bool SettleCity(IUnit settler, string cityName = null);
+
+
+
+    // Worker improvement methods
+    public bool CanBuildImprovement(IUnit worker);
+    public ImprovementType GetBestImprovementForHex(IHex hex);
+    public bool BuildImprovement(IUnit worker, ImprovementType improvementType = ImprovementType.None);
+
+    public int GetUnitProductionCost(UnitType unitType);
+
+
+
+
 
     // Events
     event System.Action<IUnit> OnUnitCreated;

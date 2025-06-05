@@ -2,6 +2,8 @@ using System.Collections.Generic;
 
 public interface ICity : IYielding
 {
+
+    CivManager CivManager { get; }
     string CityId { get; }
     string CityName { get; }
     int Population { get; }
@@ -30,8 +32,29 @@ public interface ICity : IYielding
     IProductionItem GetCurrentProduction();
     bool ProcessProduction(int productionYield);
 
+    public List<IProductionItem> GetAvailableBuildingsForProduction();
+    public List<IProductionItem> GetAvailableUnitsForProduction();
+
+    public bool CanProduceBuilding(string buildingId);
+
+    public bool CanProduceUnit(UnitType unitType);
+
+
+    public void StartProduction(IProductionItem item);
+    public void ChangeProduction(IProductionItem newItem);
+
+    public int GetTurnsRemaining();
+
+
+
+
+
+
+
+
+
+
     bool HasBuilding(string buildingId);
-    bool CanBuildBuilding(string buildingId);
     bool AssignSpecialist(string buildingId);
 
     void ProcessTurn();

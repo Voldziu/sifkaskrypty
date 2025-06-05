@@ -1,10 +1,31 @@
+using System.Collections.Generic;
+using UnityEngine;
+
+public enum ProductionItemType
+{
+    Building,
+    Unit
+}
+
 public interface IProductionItem
 {
     string Id { get; }
-    ProductionType Type { get; }
     string DisplayName { get; }
     int ProductionCost { get; }
-    int ProductionAccumulated { get; set; }
+    ProductionItemType ItemType { get; }
+    Sprite Icon { get; }
+    List<string> RequiredTechs { get; }
     bool IsCompleted { get; }
-    int TurnsRemaining(int productionPerTurn);
+
+    public int ProductionAccumulated
+    {
+        get;
+        set;
+    }
+
+    public ProductionItem AddRequiredTech(string techId);
+
+
+
+
 }
