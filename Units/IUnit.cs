@@ -22,7 +22,7 @@ public interface IUnit
     int MaxMovement { get; }
     int Attack { get; }
     int Defense { get; }
-    bool HasMoved { get; set; }
+    bool HasMoved { get;}
 
     // Movement Methods
     void MoveTo(IHex hex);

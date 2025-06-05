@@ -1,7 +1,4 @@
 using System.Collections.Generic;
-using UnityEngine;
-
-using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
@@ -13,6 +10,10 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
 
     [Header("Unit Stacking")]
     public bool allowUnitStacking = true; // One combat + one civilian per hex
+    public bool allowEnemyStacking = false; // Whether enemy units can stack with player units
+
+    [Header("Movement Settings")]
+    public bool useMovementCosts = true; // Use hex movement costs for pathfinding
 
     private List<IUnit> units = new List<IUnit>();
     private ICivilization civilization;
@@ -36,7 +37,7 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
         Debug.Log($"UnitsManager initialized for {civilization.CivName}");
     }
 
-    public IUnit CreateUnit(UnitType unitType, IHex location)
+    public IUnit CreateUnit(UnitCategory unitCategory,UnitType unitType, IHex location)
     {
         if (UnitCount >= maxUnits)
         {
@@ -80,8 +81,8 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
 
         unitComponent.Initialize(unitId, unitType, (Hex)location, unitPrefabData.prefab);
 
-        // Apply civilization colors/materials
-        ApplyCivVisuals(unitComponent);
+        
+       
 
         units.Add(unitComponent);
         OnUnitCreated?.Invoke(unitComponent);
@@ -90,23 +91,51 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
         return unitComponent;
     }
 
+    
+        
     bool CanPlaceUnitAt(UnitType unitType, IHex location)
     {
-        if (!allowUnitStacking) return GetUnitsAt(location).Count == 0;
+        if (!allowUnitStacking)
+        {
+            // No stacking allowed - check if any unit is present
+            return GetUnitsAt(location).Count == 0;
+        }
 
         var unitsAtLocation = GetUnitsAt(location);
         var unitCategory = GetUnitCategory(unitType);
 
-        // Check if there's already a unit of the same category at this location
+        // Check stacking rules
         foreach (var unit in unitsAtLocation)
         {
+            // Same category conflict
             if (unit.UnitCategory == unitCategory)
             {
-                return false; // Already has a unit of this category
+                // If it's the same civilization, don't allow
+                if (IsOwnedByCurrentCiv(unit))
+                {
+                    return false;
+                }
+
+                // If it's an enemy unit and enemy stacking is not allowed
+                if (!allowEnemyStacking)
+                {
+                    return false;
+                }
             }
         }
 
         return true;
+    }
+
+    bool IsOwnedByCurrentCiv(IUnit unit)
+    {
+        // Check if unit belongs to current civilization
+        // This is a simple check - you might want to add a civilization reference to units
+        if (unit is Unit concreteUnit)
+        {
+            return concreteUnit.name.Contains(civilization.CivName);
+        }
+        return units.Contains(unit); // If it's in our units list, it's ours
     }
 
     UnitCategory GetUnitCategory(UnitType unitType)
@@ -126,30 +155,9 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
         return unitPrefabs?.FirstOrDefault(up => up.unitType == unitType);
     }
 
-    void ApplyCivVisuals(Unit unit)
-    {
-        // Apply civilization-specific colors or materials
-        var renderers = unit.GetComponentsInChildren<Renderer>();
-        Color civColor = GetCivColor();
+    
 
-        foreach (var renderer in renderers)
-        {
-            // Tint the unit with civilization color
-            renderer.material.color = civColor;
-        }
-    }
-
-    Color GetCivColor()
-    {
-        switch (civilization.CivName)
-        {
-            case "Rome": return Color.red;
-            case "Egypt": return Color.yellow;
-            case "Greece": return Color.blue;
-            case "China": return Color.green;
-            default: return Color.white;
-        }
-    }
+   
 
     public IUnit GetUnit(string unitId)
     {
@@ -169,6 +177,15 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
     public List<IUnit> GetCivilianUnitsAt(IHex hex)
     {
         return GetUnitsAt(hex).Where(u => u.UnitCategory == UnitCategory.Civilian).ToList();
+    }
+
+    // Enhanced method to get units by category with priority sorting
+    public List<IUnit> GetUnitsAtSorted(IHex hex)
+    {
+        var unitsAtHex = GetUnitsAt(hex);
+
+        // Sort: Combat units first, then civilians
+        return unitsAtHex.OrderBy(u => u.UnitCategory == UnitCategory.Combat ? 0 : 1).ToList();
     }
 
     public bool RemoveUnit(string unitId)
@@ -196,38 +213,131 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
         if (unit == null || destination == null) return false;
         if (!unit.CanMoveTo(destination)) return false;
 
+        // Check if unit has enough movement points
+        if (unit.Movement <= 0 || unit.HasMoved)
+        {
+            Debug.LogWarning($"Unit {unit.UnitName} has no movement left");
+            return false;
+        }
+
         // Check stacking rules at destination
         if (!CanPlaceUnitAt(unit.UnitType, destination))
         {
-            Debug.LogWarning($"Cannot move {unit.UnitName} - destination blocked");
+            Debug.LogWarning($"Cannot move {unit.UnitName} - destination blocked by stacking rules");
+            return false;
+        }
+
+        // Calculate movement cost
+        int movementCost = CalculateMovementCost(unit.CurrentHex, destination);
+
+        if (unit.Movement < movementCost)
+        {
+            Debug.LogWarning($"Unit {unit.UnitName} doesn't have enough movement ({unit.Movement} < {movementCost}) for terrain {destination.Terrain}");
             return false;
         }
 
         var oldHex = unit.CurrentHex;
         unit.MoveTo(destination);
 
+        // Deduct movement cost
+        unit.Movement -= movementCost;
+
+       
+
         OnUnitMoved?.Invoke(unit, destination);
-        Debug.Log($"Moved {unit.UnitName} from ({oldHex.Q}, {oldHex.R}) to ({destination.Q}, {destination.R})");
+        Debug.Log($"Moved {unit.UnitName} from ({oldHex.Q}, {oldHex.R}) to ({destination.Q}, {destination.R}) " +
+                  $"(Cost: {movementCost}, Remaining: {unit.Movement}/{unit.MaxMovement})");
 
         return true;
     }
 
+    int CalculateMovementCost(IHex from, IHex to)
+    {
+        if (!useMovementCosts) return 1;
+
+        // For adjacent hexes, use the destination hex's movement cost
+        if (mapManager.GetDistance((Hex)from, (Hex)to) == 1)
+        {
+            int cost = to.MovementCost;
+            Debug.Log($"Movement cost from ({from.Q},{from.R}) to ({to.Q},{to.R}): {cost} (terrain: {to.Terrain})");
+            return cost;
+        }
+
+        // For non-adjacent moves, calculate path cost (shouldn't happen in normal gameplay)
+        var path = mapManager.FindPath((Hex)from, (Hex)to);
+        if (path != null && path.Count > 1)
+        {
+            int totalCost = 0;
+            for (int i = 1; i < path.Count; i++) // Skip starting hex
+            {
+                totalCost += path[i].MovementCost;
+            }
+            Debug.Log($"Path movement cost from ({from.Q},{from.R}) to ({to.Q},{to.R}): {totalCost} over {path.Count - 1} hexes");
+            return totalCost;
+        }
+
+        Debug.LogWarning($"Cannot calculate movement cost from ({from.Q},{from.R}) to ({to.Q},{to.R}) - invalid path");
+        return 999; // Invalid move
+    }
+
     public List<IHex> GetValidMoves(IUnit unit)
     {
-        if (unit == null) return new List<IHex>();
+        if (unit == null || unit.Movement <= 0 || unit.HasMoved)
+            return new List<IHex>();
 
         var validMoves = new List<IHex>();
-        var reachableHexes = mapManager.GetReachableHexes((Hex)unit.CurrentHex, unit.Movement);
 
-        foreach (var hex in reachableHexes)
+        if (useMovementCosts)
         {
-            if (unit.CanMoveTo(hex) && CanPlaceUnitAt(unit.UnitType, hex))
+            // Use movement-cost-aware pathfinding
+            var reachableHexes = mapManager.GetReachableHexesWithMovement((Hex)unit.CurrentHex, unit.Movement);
+
+            foreach (var hex in reachableHexes)
             {
-                validMoves.Add(hex);
+                if (unit.CanMoveTo(hex) && CanPlaceUnitAt(unit.UnitType, hex))
+                {
+                    validMoves.Add(hex);
+                }
             }
+
+            Debug.Log($"Unit {unit.UnitName} can reach {validMoves.Count} hexes with {unit.Movement} movement points (using movement costs)");
+        }
+        else
+        {
+            // Simple range-based movement (ignoring movement costs)
+            var reachableHexes = mapManager.GetReachableHexes((Hex)unit.CurrentHex, unit.Movement);
+
+            foreach (var hex in reachableHexes)
+            {
+                if (unit.CanMoveTo(hex) && CanPlaceUnitAt(unit.UnitType, hex))
+                {
+                    validMoves.Add(hex);
+                }
+            }
+
+            Debug.Log($"Unit {unit.UnitName} can reach {validMoves.Count} hexes with {unit.Movement} range (ignoring movement costs)");
         }
 
         return validMoves;
+    }
+
+    // Method to check if a specific move is valid
+    public bool IsValidMove(IUnit unit, IHex destination)
+    {
+        if (unit == null || destination == null) return false;
+        if (unit.Movement <= 0 || unit.HasMoved) return false;
+        if (!unit.CanMoveTo(destination)) return false;
+        if (!CanPlaceUnitAt(unit.UnitType, destination)) return false;
+
+        int movementCost = CalculateMovementCost(unit.CurrentHex, destination);
+        return unit.Movement >= movementCost;
+    }
+
+    // Enhanced method to get movement cost to a destination
+    public int GetMovementCostTo(IUnit unit, IHex destination)
+    {
+        if (unit == null || destination == null) return 999;
+        return CalculateMovementCost(unit.CurrentHex, destination);
     }
 
     public bool CanAttack(IUnit attacker, IUnit target)
@@ -235,6 +345,7 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
         if (attacker == null || target == null) return false;
         if (!attacker.IsCombatUnit()) return false;
         if (attacker.HasMoved) return false;
+        if (IsOwnedByCurrentCiv(target)) return false; // Can't attack own units
 
         int distance = mapManager.GetDistance((Hex)attacker.CurrentHex, (Hex)target.CurrentHex);
         return distance <= 1; // Melee range
@@ -253,7 +364,7 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
             attacker.TakeDamage(counterDamage);
         }
 
-        attacker.HasMoved = true;
+        
 
         Debug.Log($"{attacker.UnitName} attacked {target.UnitName} for {damage} damage");
 
@@ -295,7 +406,7 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
     {
         foreach (var unit in units)
         {
-            unit.HasMoved = false;
+            
             unit.Movement = unit.MaxMovement;
         }
     }
@@ -347,5 +458,55 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
     public bool HasUnits()
     {
         return units.Count > 0;
+    }
+
+    // Get all units at a hex (including enemy units for visibility)
+    public List<IUnit> GetAllUnitsAtHex(IHex hex, ICivsManager civsManager)
+    {
+        var allUnits = new List<IUnit>();
+
+        // Add our units
+        allUnits.AddRange(GetUnitsAt(hex));
+
+        // Add other civs' units (for selection/visibility)
+        if (civsManager != null)
+        {
+            var allCivs = civsManager.GetAliveCivilizations();
+            foreach (var civ in allCivs)
+            {
+                if (civ.CivId != civilization.CivId)
+                {
+                    var enemyUnitsManager = civ.CivManager?.UnitsManager;
+                    if (enemyUnitsManager != null)
+                    {
+                        var enemyUnits = enemyUnitsManager.GetUnitsAt(hex);
+                        allUnits.AddRange(enemyUnits);
+                    }
+                }
+            }
+        }
+
+        return allUnits;
+    }
+
+    // Check if unit can move at all
+    public bool CanUnitMove(IUnit unit)
+    {
+        if (unit == null) return false;
+        if (unit.Movement <= 0 || unit.HasMoved) return false;
+
+        var validMoves = GetValidMoves(unit);
+        return validMoves.Count > 0;
+    }
+
+    // Get the best move for AI (placeholder for future AI)
+    public IHex GetBestMoveForAI(IUnit unit)
+    {
+        var validMoves = GetValidMoves(unit);
+        if (validMoves.Count == 0) return null;
+
+        // Simple AI: random move for now
+        int randomIndex = Random.Range(0, validMoves.Count);
+        return validMoves[randomIndex];
     }
 }

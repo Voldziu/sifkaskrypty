@@ -1,7 +1,5 @@
 using UnityEngine;
 
-
-
 public class Hex : MonoBehaviour, IHex
 {
     [Header("Coordinates")]
@@ -35,7 +33,16 @@ public class Hex : MonoBehaviour, IHex
     public int MovementCost => movementCost;
     public bool IsObstacle => isObstacle;
 
-    public TerrainType Terrain { get => terrain; set => terrain = value; }
+    public TerrainType Terrain
+    {
+        get => terrain;
+        set
+        {
+            terrain = value;
+            SetMovementCost(); // Update movement cost when terrain changes
+        }
+    }
+
     public ResourceType Resource
     {
         get => resourceCategory;
@@ -57,7 +64,8 @@ public class Hex : MonoBehaviour, IHex
     {
         this.q = q;
         this.r = r;
-        GenerateBaseYields();
+     
+        SetMovementCost();
     }
 
     public Yields GetTotalYields()
@@ -77,6 +85,55 @@ public class Hex : MonoBehaviour, IHex
     {
         isWorked = worked;
         workedByCityId = worked ? cityId : "";
+    }
+
+    private void SetMovementCost()
+    {
+        switch (terrain)
+        {
+            case TerrainType.Grassland:
+                movementCost = 1;
+                isObstacle = false;
+                break;
+            case TerrainType.Plains:
+                movementCost = 1;
+                isObstacle = false;
+                break;
+            case TerrainType.Desert:
+                movementCost = 1;
+                isObstacle = false;
+                break;
+            case TerrainType.Tundra:
+                movementCost = 1;
+                isObstacle = false;
+                break;
+            case TerrainType.Snow:
+                movementCost = 2; // Snow is harder to traverse
+                isObstacle = false;
+                break;
+            case TerrainType.Hill:
+                movementCost = 2; // Hills cost more movement
+                isObstacle = false;
+                break;
+            case TerrainType.Mountain:
+                movementCost = 999; // Mountains are impassable
+                isObstacle = true;
+                break;
+            case TerrainType.Ocean:
+                movementCost = 999; // Ocean impassable to land units
+                isObstacle = true;
+                break;
+            case TerrainType.Coast:
+                movementCost = 1; // Coast is passable
+                isObstacle = false;
+                break;
+            default:
+                movementCost = 1;
+                isObstacle = false;
+                break;
+        }
+
+        Debug.Log($"Hex ({q}, {r}) terrain {terrain} set movement cost to {movementCost}");
     }
 
     private Yields GetResourceYields()
@@ -145,31 +202,28 @@ public class Hex : MonoBehaviour, IHex
         }
     }
 
-    private void GenerateBaseYields()
+    
+
+    // Helper method to get movement cost info for UI
+    public string GetMovementCostInfo()
     {
-        switch (terrain)
+        if (isObstacle)
         {
-            case TerrainType.Grassland:
-                baseYields = new Yields(food: 2, production: 0, gold: 0);
-                break;
-            case TerrainType.Plains:
-                baseYields = new Yields(food: 1, production: 1, gold: 0);
-                break;
-            case TerrainType.Desert:
-                baseYields = new Yields(food: 0, production: 0, gold: 0);
-                break;
-            case TerrainType.Hill:
-                baseYields = new Yields(food: 0, production: 2, gold: 0);
-                break;
-            case TerrainType.Ocean:
-                baseYields = new Yields(food: 1, production: 0, gold: 1);
-                break;
-            case TerrainType.Coast:
-                baseYields = new Yields(food: 1, production: 0, gold: 2);
-                break;
-            default:
-                baseYields = new Yields(food: 1, production: 0, gold: 0);
-                break;
+            return "Impassable";
         }
+        else if (movementCost == 1)
+        {
+            return "1 MP";
+        }
+        else
+        {
+            return $"{movementCost} MP";
+        }
+    }
+
+    // Helper method to check if terrain is difficult
+    public bool IsDifficultTerrain()
+    {
+        return movementCost > 1 && !isObstacle;
     }
 }

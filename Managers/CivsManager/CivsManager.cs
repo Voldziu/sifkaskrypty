@@ -165,7 +165,7 @@ public class CivsManager : MonoBehaviour, ICivsManager
         var unitsManager = civilization.CivManager?.UnitsManager;
         if (unitsManager != null)
         {
-            var settler = unitsManager.CreateUnit(UnitType.Settler, startHex);
+            var settler = unitsManager.CreateUnit(UnitCategory.Civilian,UnitType.Settler, startHex);
             if (settler != null)
             {
                 Debug.Log($"Created Settler for {civilization.CivName} at ({startHex.Q}, {startHex.R})");
@@ -186,7 +186,7 @@ public class CivsManager : MonoBehaviour, ICivsManager
 
             if (warriorHex != null)
             {
-                var warrior = unitsManager.CreateUnit(UnitType.Warrior, warriorHex);
+                var warrior = unitsManager.CreateUnit(UnitCategory.Combat,UnitType.Warrior, warriorHex);
                 if (warrior != null)
                 {
                     Debug.Log($"Created Warrior for {civilization.CivName} at ({warriorHex.Q}, {warriorHex.R})");

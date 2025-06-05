@@ -27,10 +27,7 @@ public class GameManager : MonoBehaviour, IGameManager
     {
         InitializeGame();
 
-        if (autoStartGame)
-        {
-            StartGame();
-        }
+        
     }
 
     void InitializeGame()
@@ -45,10 +42,16 @@ public class GameManager : MonoBehaviour, IGameManager
         }
 
         // Initialize managers with proper timing
-        StartCoroutine(InitializeManagersSequentially());
+        StartCoroutine(InitializeManagersSequentially(() => {
+            // This callback runs when initialization is complete
+            if (autoStartGame)
+            {
+                StartGame();
+            }
+        }));
     }
 
-    System.Collections.IEnumerator InitializeManagersSequentially()
+    System.Collections.IEnumerator InitializeManagersSequentially(System.Action onComplete = null)
     {
         // Initialize MapManager first
         Debug.Log("Initializing MapManager...");
@@ -80,7 +83,8 @@ public class GameManager : MonoBehaviour, IGameManager
 
         // Now initialize CivsManager with the ready map
         Debug.Log("Initializing CivsManager...");
-        civsManager.Initialize(mapManager);
+        InitializeManagers();
+
 
         Debug.Log("All managers initialized successfully");
     }
@@ -254,6 +258,7 @@ public class GameManager : MonoBehaviour, IGameManager
 
         if (Input.GetKeyDown(KeyCode.P))
         {
+            Debug.Log("Toggling pause/resume");
             if (currentGameState == GameState.Running)
                 PauseGame();
             else if (currentGameState == GameState.Paused)

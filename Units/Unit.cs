@@ -1,4 +1,6 @@
+using Unity.VisualScripting;
 using UnityEngine;
+using static UnityEditor.FilePathAttribute;
 
 public enum UnitCategory
 {
@@ -25,7 +27,6 @@ public class Unit : MonoBehaviour, IUnit
     public int maxMovement;
     public int attack;
     public int defense;
-    public bool hasMoved;
 
     [Header("Visual")]
     public GameObject unitPrefab;
@@ -43,130 +44,47 @@ public class Unit : MonoBehaviour, IUnit
     public int MaxMovement => maxMovement;
     public int Attack => attack;
     public int Defense => defense;
-    public bool HasMoved { get => hasMoved; set => hasMoved = value; }
+    public bool HasMoved => movement ==0;
 
     public void Initialize(string unitId, UnitType unitType, Hex startingHex, GameObject prefab = null)
     {
         this.unitId = unitId;
         this.unitType = unitType;
         this.currentHex = startingHex;
-        this.hasMoved = false;
+       
         this.unitPrefab = prefab;
-
-        // Set stats based on unit type
-        InitializeUnitStats();
 
         this.unitName = $"{unitType}_{unitId}";
         this.health = this.maxHealth;
         this.movement = this.maxMovement;
 
-        // Create visual representation
-        CreateVisualRepresentation();
+     
+
+        UpdateVisualPosition();
+      
     }
 
-    void InitializeUnitStats()
+    
+
+   
+
+    Vector3 GetVisualPosition()
     {
-        switch (unitType)
+        // Start with the main GameObject's world position (hex center)
+        Vector3 basePos = transform.position;
+
+        // Add visual offset based on unit category
+        float yOffset = 0f;
+        if (unitCategory == UnitCategory.Civilian)
         {
-            case UnitType.Warrior:
-                unitCategory = UnitCategory.Combat;
-                maxHealth = 100;
-                maxMovement = 2;
-                attack = 8;
-                defense = 8;
-                break;
-
-            case UnitType.Archer:
-                unitCategory = UnitCategory.Combat;
-                maxHealth = 80;
-                maxMovement = 2;
-                attack = 12;
-                defense = 6;
-                break;
-
-            case UnitType.Spearman:
-                unitCategory = UnitCategory.Combat;
-                maxHealth = 110;
-                maxMovement = 2;
-                attack = 7;
-                defense = 13;
-                break;
-
-            case UnitType.Scout:
-                unitCategory = UnitCategory.Combat;
-                maxHealth = 60;
-                maxMovement = 3;
-                attack = 4;
-                defense = 4;
-                break;
-
-            case UnitType.Settler:
-                unitCategory = UnitCategory.Civilian;
-                maxHealth = 80;
-                maxMovement = 2;
-                attack = 0;
-                defense = 0;
-                break;
-
-            case UnitType.Worker:
-                unitCategory = UnitCategory.Civilian;
-                maxHealth = 60;
-                maxMovement = 2;
-                attack = 0;
-                defense = 0;
-                break;
-
-            default:
-                unitCategory = UnitCategory.Combat;
-                maxHealth = 100;
-                maxMovement = 2;
-                attack = 5;
-                defense = 5;
-                break;
-        }
-    }
-
-    void CreateVisualRepresentation()
-    {
-        if (unitPrefab != null && currentHex != null)
-        {
-            Vector3 worldPos = GetWorldPosition();
-            unitVisual = Instantiate(unitPrefab, worldPos, Quaternion.identity, transform);
-            unitVisual.name = $"{unitName}_Visual";
-        }
-    }
-
-    Vector3 GetWorldPosition()
-    {
-        Vector3 basePos = Vector3.zero;
-
-        if (currentHex != null)
-        {
-            // Try to get map manager reference
-            var mapManager = FindObjectOfType<MapManager>();
-            if (mapManager != null && mapManager.HexMap != null)
-            {
-                basePos = mapManager.HexMap.HexToWorld(currentHex.Q, currentHex.R);
-            }
-            else
-            {
-                Debug.LogWarning($"Could not find MapManager for unit {unitName} positioning");
-                // Fallback: use hex coordinates directly (scaled)
-                basePos = new Vector3(currentHex.Q * 1.5f, currentHex.R * 1.3f, 0);
-            }
-        }
-
-        // Offset combat and civilian units so they don't overlap on same hex
-        if (unitCategory == UnitCategory.Combat)
-        {
-            basePos += new Vector3(-0.2f, 0.1f, -0.1f); // Combat units slightly left and forward
+            yOffset = -0.2f; // Lower civilians
         }
         else
         {
-            basePos += new Vector3(0.2f, -0.1f, -0.1f); // Civilian units slightly right and back
+            yOffset = 0.2f; // Raise combat units
         }
 
-        return basePos;
+        return new Vector3(basePos.x, basePos.y + yOffset, basePos.z);
     }
 
     public void MoveTo(IHex hex)
@@ -174,10 +92,12 @@ public class Unit : MonoBehaviour, IUnit
         if (hex != null && CanMoveTo(hex))
         {
             currentHex = (Hex)hex;
-            hasMoved = true;
-            movement = Mathf.Max(0, movement - 1);
+            
+            movement = Mathf.Max(0, movement);
 
             // Update visual position
+
+            UpdateMainPosition();
             UpdateVisualPosition();
         }
     }
@@ -186,22 +106,30 @@ public class Unit : MonoBehaviour, IUnit
     {
         if (unitVisual != null)
         {
-            Vector3 worldPos = GetWorldPosition();
-            unitVisual.transform.position = worldPos;
-            Debug.Log($"Unit {unitName} positioned at world coordinates: {worldPos}");
+            Vector3 visualPos = GetVisualPosition();
+            unitVisual.transform.position = visualPos;
+            Debug.Log($"Unit {unitName} visual positioned at: {visualPos}");
         }
-        else if (gameObject != null)
+    }
+
+
+    void UpdateMainPosition()
+    {
+        if (currentHex != null)
         {
-            // If no separate visual, position the main GameObject
-            Vector3 worldPos = GetWorldPosition();
-            transform.position = worldPos;
-            Debug.Log($"Unit GameObject {unitName} positioned at: {worldPos}");
+            var mapManager = FindObjectOfType<MapManager>();
+            if (mapManager != null && mapManager.HexMap != null)
+            {
+                Vector3 worldPos = mapManager.HexMap.HexToWorld(currentHex.Q, currentHex.R);
+                transform.position = worldPos; // No offset for main GameObject
+                Debug.Log($"Unit {unitName} main GameObject positioned at: {worldPos}");
+            }
         }
     }
 
     public bool CanMoveTo(IHex hex)
     {
-        if (hex == null || movement <= 0 || hasMoved) return false;
+        if (hex == null || movement <= 0) return false;
         if (hex.IsObstacle) return false;
 
         // Check unit stacking rules: only one combat and one civilian unit per hex
@@ -213,7 +141,7 @@ public class Unit : MonoBehaviour, IUnit
     public void ProcessTurn()
     {
         movement = maxMovement;
-        hasMoved = false;
+        
 
         if (health < maxHealth)
         {

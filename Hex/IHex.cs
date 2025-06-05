@@ -10,6 +10,8 @@ public interface IHex : IYielding, IWorkable
     int MovementCost { get; }
     bool IsObstacle { get; }
 
+    public string GetMovementCostInfo();
+
     TerrainType Terrain { get; set; }
     ResourceType Resource { get; set; }
     ImprovementType Improvement { get; set; }
