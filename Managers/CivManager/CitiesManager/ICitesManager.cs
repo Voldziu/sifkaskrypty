@@ -5,6 +5,8 @@ using UnityEngine;
 
 public interface ICitiesManager
 {
+
+    public CivManager CivManager { get; }
     Dictionary<string, ICity> Cities { get; }
 
     ICity FoundCity(string cityName, IHex location);

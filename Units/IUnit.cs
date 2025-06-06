@@ -3,7 +3,7 @@ using UnityEngine;
 
 public enum UnitType
 {
-    Warrior, Archer, Spearman, Settler, Worker, Scout
+    Warrior, Archer, Spearman, Settler, Worker, Scout, Horseman, Swordsman
 }
 
 public interface IUnit

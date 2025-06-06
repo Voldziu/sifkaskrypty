@@ -4,6 +4,8 @@ using System.Collections.Generic;
 
 public interface ITechManager
 {
+
+    public CivManager CivManager { get; }
     List<string> ResearchedTechs { get; }
     ITechnology CurrentResearch { get; }
     int ScienceAccumulated { get; }

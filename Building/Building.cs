@@ -19,7 +19,7 @@ public class Building : ProductionItem, IBuilding
         this.yields = yields;
         this.specialistSlots = specialistSlots;
         this.prerequisites = new List<string>();
-        this.icon = Resources.Load<Sprite>($"Icons/Buildings/{id}");
+        this.icon = Resources.Load<Sprite>($"Icons/Buildings/{id}") ?? Resources.Load<Sprite>("Icons/placeholder");
     }
 
     

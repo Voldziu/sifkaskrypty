@@ -16,36 +16,36 @@ public static class UnitDatabase
     // UNCOMMENT WHEN ICON ARE AVAILABLE
     {
         // Ancient Era Units
-        var warrior = new UnitData("warrior", "Warrior", 40, UnitType.Warrior, UnitCategory.Combat, 6, 6, 100, 2);
+        var warrior = new UnitData("warrior", "Warrior", 1, UnitType.Warrior, UnitCategory.Combat, 6, 6, 100, 2);
 
-        //var archer = new UnitData("archer", "Archer", 40, UnitType.Archer, UnitCategory.Combat, 5, 5, 100, 2)
-        //    .AddRequiredTech("archery");
+        var archer = new UnitData("archer", "Archer", 40, UnitType.Archer, UnitCategory.Combat, 5, 5, 100, 2)
+            .AddRequiredTech("archery");
 
-        //var spearman = new UnitData("spearman", "Spearman", 56, UnitType.Spearman, UnitCategory.Combat, 7, 10, 100, 2)
-        //    .AddRequiredTech("bronze_working");
+        var spearman = new UnitData("spearman", "Spearman", 56, UnitType.Spearman, UnitCategory.Combat, 7, 10, 100, 2)
+            .AddRequiredTech("bronze_working");
 
-        //var scout = new UnitData("scout", "Scout", 25, UnitType.Scout, UnitCategory.Combat, 4, 4, 100, 3);
+        var scout = new UnitData("scout", "Scout", 1, UnitType.Scout, UnitCategory.Combat, 4, 4, 100, 3);
 
-        var settler = new UnitData("settler", "Settler", 106, UnitType.Settler, UnitCategory.Civilian, 0, 0, 100, 2);
+        var settler = new UnitData("settler", "Settler", 1, UnitType.Settler, UnitCategory.Civilian, 0, 0, 100, 2);
 
-        //var worker = new UnitData("worker", "Worker", 70, UnitType.Worker, UnitCategory.Civilian, 0, 0, 100, 2);
+        var worker = new UnitData("worker", "Worker", 70, UnitType.Worker, UnitCategory.Civilian, 0, 0, 100, 2);
 
         // Classical Era Units
-        // var swordsman = new UnitData("swordsman", "Swordsman", 75, UnitType.Swordsman, UnitCategory.Combat, 11, 11, 100, 2)
-        //     .AddRequiredTech("iron_working");
+        var swordsman = new UnitData("swordsman", "Swordsman", 75, UnitType.Swordsman, UnitCategory.Combat, 11, 11, 100, 2)
+            .AddRequiredTech("iron_working");
 
-        // var horseman = new UnitData("horseman", "Horseman", 75, UnitType.Horseman, UnitCategory.Combat, 12, 11, 100, 4)
-        //     .AddRequiredTech("horseback_riding");
+        var horseman = new UnitData("horseman", "Horseman", 75, UnitType.Horseman, UnitCategory.Combat, 12, 11, 100, 4)
+            .AddRequiredTech("horseback_riding");
 
         // Add all units to database
         units["warrior"] = warrior;
-        //units["archer"] = archer;
-        //units["spearman"] = spearman;
-        //units["scout"] = scout;
+        units["archer"] =  (UnitData) archer;
+        units["spearman"] = (UnitData) spearman;
+        units["scout"] = scout;
         units["settler"] = settler;
-        //units["worker"] = worker;
-        // units["swordsman"] = swordsman;
-        // units["horseman"] = horseman;
+        units["worker"] = worker;
+        units["swordsman"] = (UnitData) swordsman;
+        units["horseman"] = (UnitData) horseman;
     }
 
     public static UnitData GetUnit(string id)

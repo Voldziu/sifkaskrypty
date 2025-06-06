@@ -7,6 +7,9 @@ using UnityEngine;
 
 public class TechManager : MonoBehaviour, ITechManager
 {
+
+    [Header("Refereces")]
+    public CivManager civManager;
     [Header("Research Settings")]
     public float researchSpeedMultiplier = 1f;
 
@@ -23,6 +26,8 @@ public class TechManager : MonoBehaviour, ITechManager
     public List<string> ResearchedTechs => researchedTechs;
     public ITechnology CurrentResearch => currentResearch;
     public int ScienceAccumulated => scienceAccumulated;
+
+    public CivManager CivManager => civManager;
 
     // Events
     public event System.Action<ITechnology> OnTechnologyResearched;

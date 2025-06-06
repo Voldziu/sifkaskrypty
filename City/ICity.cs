@@ -17,7 +17,7 @@ public interface ICity : IYielding
     Dictionary<string, int> Specialists { get; }
     List<IProductionItem> ProductionQueue { get; }
 
-    void Initialize(string id, string name, IHex centerHex, HexMapGenerator mapGenerator);
+    void Initialize(string id, string name, IHex centerHex, HexMapGenerator mapGenerator,CivManager civManager);
 
     int GetFoodRequiredForGrowth();
     bool CanGrow();

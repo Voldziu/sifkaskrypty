@@ -4,6 +4,9 @@ using UnityEngine;
 
 public class CitiesManager : MonoBehaviour, ICitiesManager
 {
+
+    [Header("References")]
+    public CivManager civManager;
     [Header("Dependencies")]
     public HexMapGenerator mapGenerator;
     public GameObject cityPrefab;
@@ -14,6 +17,7 @@ public class CitiesManager : MonoBehaviour, ICitiesManager
     private int cityIdCounter = 0;
 
     public Dictionary<string, ICity> Cities => cities.ToDictionary(kvp => kvp.Key, kvp => (ICity)kvp.Value);
+    public CivManager CivManager => civManager;
 
     public ICity FoundCity(string cityName, IHex location)
     {
@@ -44,7 +48,7 @@ public class CitiesManager : MonoBehaviour, ICitiesManager
             city = cityGO.AddComponent<City>();
         }
 
-        city.Initialize(cityId, cityName, location, mapGenerator);
+        city.Initialize(cityId, cityName, location, mapGenerator,civManager);
         cities[cityId] = city;
 
         Debug.Log($"Founded {cityName} at ({location.Q}, {location.R})");

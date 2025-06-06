@@ -57,15 +57,18 @@ public class GameHUD : MonoBehaviour
 
     [Header("Buildings Scroll View")]
     public ScrollRect buildingsScrollView;
-    public GameObject buildingItemPrefab;
+    
 
     [Header("Units Scroll View")]
     public ScrollRect unitsScrollView;
-    public GameObject unitItemPrefab;
+
+    [Header("Unified prefab for production")]
+    public GameObject productionItemPrefab;
 
     [Header("Current Production")]
     public TextMeshProUGUI turnRemaining;
-    public TextMeshProUGUI currentProductionName;
+    public GameObject currentProductionPanel;
+    
 
     [Header("Colors")]
     public Color player1Color = Color.blue;
@@ -898,30 +901,27 @@ public class GameHUD : MonoBehaviour
         if (culture) culture.text = $"Culture: {yields.culture}";
         if (science) science.text = $"Science: {yields.science}";
 
-        var currentProduction = city.GetCurrentProduction();
-        if (currentProduction != null)
+
+
+        // Clear existing items (can be from another civ)
+        for (int i = currentProductionPanel.transform.childCount - 1; i >= 0; i--)
         {
-            if (currentProductionName) currentProductionName.text = currentProduction.DisplayName;
-            if (turnRemaining)
-            {
-                int turnsLeft = city.GetTurnsRemaining();
-                turnRemaining.text = $"{turnsLeft} turns";
-            }
+            Destroy(currentProductionPanel.transform.GetChild(i).gameObject);
+            Debug.Log($"Destroyed child at index {i} in currentProductionPanel");
         }
-        else
-        {
-            if (currentProductionName) currentProductionName.text = "No production";
-            if (turnRemaining) turnRemaining.text = "-";
-        }
+
+        
+        
 
         UpdateBuildingsList(city);
         UpdateUnitsList(city);
         UpdateConstructedBuildingsList(city);
+        UpdateCurrentProduction(city);
     }
 
     void UpdateBuildingsList(ICity city)
     {
-        if (buildingsScrollView == null || buildingItemPrefab == null) return;
+        if (buildingsScrollView == null || productionItemPrefab == null) return;
 
         // Clear existing items
         foreach (Transform child in buildingsScrollView.content)
@@ -932,7 +932,7 @@ public class GameHUD : MonoBehaviour
         Debug.Log($"Available buildings count: {availableBuildings.Count}");
         foreach (var building in availableBuildings)
         {
-            CreateProductionItem(building, false, true, buildingsScrollView.content, buildingItemPrefab); // not constructed, clickable
+            CreateProductionItem(building, false, true, buildingsScrollView.content, productionItemPrefab); // not constructed, clickable
         }
     }
 
@@ -950,14 +950,14 @@ public class GameHUD : MonoBehaviour
             var building = BuildingDatabase.GetBuilding(buildingId);
             if (building != null)
             {
-                CreateProductionItem(building, true, false, constructedBuildingsScrollView.content, buildingItemPrefab);
+                CreateProductionItem(building, true, false, constructedBuildingsScrollView.content, productionItemPrefab);
             }
         }
     }
 
     void UpdateUnitsList(ICity city)
     {
-        if (unitsScrollView == null || unitItemPrefab == null) return;
+        if (unitsScrollView == null || productionItemPrefab == null) return;
 
         // Clear existing items
         foreach (Transform child in unitsScrollView.content)
@@ -967,7 +967,22 @@ public class GameHUD : MonoBehaviour
         var availableUnits = city.GetAvailableUnitsForProduction();
         foreach (var unit in availableUnits)
         {
-            CreateProductionItem(unit, false, true, unitsScrollView.content, unitItemPrefab); // not constructed, clickable
+            CreateProductionItem(unit, false, true, unitsScrollView.content, productionItemPrefab); // not constructed, clickable
+        }
+    }
+
+    void UpdateCurrentProduction(ICity city)
+    {
+        var currentProduction = city.GetCurrentProduction();
+        if (currentProduction != null)
+        {
+            CreateProductionItem(currentProduction, true, false, currentProductionPanel.transform, productionItemPrefab);
+
+            if (turnRemaining)
+            {
+                int turnsLeft = city.GetTurnsRemaining();
+                turnRemaining.text = $"{turnsLeft} turns";
+            }
         }
     }
 

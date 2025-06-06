@@ -42,12 +42,13 @@ public class City : MonoBehaviour, ICity
     public Dictionary<string, int> Specialists => specialists;
     public List<IProductionItem> ProductionQueue => productionQueue.Cast<IProductionItem>().ToList();
 
-    public void Initialize(string id, string name, IHex centerHex, HexMapGenerator mapGenerator)
+    public void Initialize(string id, string name, IHex centerHex, HexMapGenerator mapGenerator,CivManager civManager)
     {
         this.cityId = id;
         this.cityName = name;
         this.centerHex = (Hex)centerHex;
         this.mapGenerator = mapGenerator;
+        this.civManager = civManager;
 
         GenerateWorkableHexes();
         WorkCityCenter();

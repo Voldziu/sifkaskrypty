@@ -31,7 +31,7 @@ public class UnitData : ProductionItem
         this.defense = defense;
         this.health = health;
         this.movement = movement;
-        this.icon = Resources.Load<Sprite>($"Icons/Units/{id}");
+        this.icon = Resources.Load<Sprite>($"Icons/Units/{id}") ?? Resources.Load<Sprite>("Icons/placeholder");
     }
 
    
