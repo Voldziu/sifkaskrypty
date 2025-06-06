@@ -60,6 +60,7 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
         }
 
         // Get unit prefab
+        Debug.Log($"Creating unit of type {unitType} for {civilization.CivName} at ({location.Q}, {location.R})");
         var unitPrefabData = GetUnitPrefabData(unitType);
         if (unitPrefabData?.prefab == null)
         {
@@ -153,6 +154,7 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
 
     UnitPrefabData GetUnitPrefabData(UnitType unitType)
     {
+        Debug.Log($"Getting prefab data for unit type {unitType}");
         return unitPrefabs?.FirstOrDefault(up => up.unitType == unitType);
     }
 

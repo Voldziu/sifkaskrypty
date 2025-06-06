@@ -4,6 +4,7 @@ using TMPro;
 using System.Collections.Generic;
 using System.Linq;
 using Unity.VisualScripting.Antlr3.Runtime;
+using UnityEngine.UIElements;
 
 public class GameHUD : MonoBehaviour
 {
@@ -13,7 +14,7 @@ public class GameHUD : MonoBehaviour
     [Header("Turn Panel")]
     public TextMeshProUGUI tourCounterText;
     public TextMeshProUGUI currentPlayerText;
-    public Button endTurnButton;
+    public UnityEngine.UI.Button endTurnButton;
 
     [Header("Player Stats")]
     public TextMeshProUGUI citiesText;
@@ -26,11 +27,11 @@ public class GameHUD : MonoBehaviour
     public TextMeshProUGUI unitNameText;
     public TextMeshProUGUI unitHealthText;
     public TextMeshProUGUI unitMovementText;
-    public Button[] unitActionButtons;
+    public UnityEngine.UI.Button[] unitActionButtons;
 
     [Header("Unit Selection")]
     public TextMeshProUGUI unitCycleText;
-    public Button cycleUnitsButton;
+    public UnityEngine.UI.Button cycleUnitsButton;
 
     [Header("City Management Panel")]
     public GameObject cityManagementPanel;
@@ -921,18 +922,15 @@ public class GameHUD : MonoBehaviour
 
     void UpdateBuildingsList(ICity city)
     {
-        if (buildingsScrollView == null || productionItemPrefab == null) return;
-
         // Clear existing items
         foreach (Transform child in buildingsScrollView.content)
             Destroy(child.gameObject);
 
-        // Show available buildings for production
         var availableBuildings = city.GetAvailableBuildingsForProduction();
-        Debug.Log($"Available buildings count: {availableBuildings.Count}");
         foreach (var building in availableBuildings)
         {
-            CreateProductionItem(building, false, true, buildingsScrollView.content, productionItemPrefab); // not constructed, clickable
+            CreateProductionItemWithId(building.Id, building.DisplayName, building.Icon,
+                                     buildingsScrollView.content);
         }
     }
 
@@ -950,7 +948,8 @@ public class GameHUD : MonoBehaviour
             var building = BuildingDatabase.GetBuilding(buildingId);
             if (building != null)
             {
-                CreateProductionItem(building, true, false, constructedBuildingsScrollView.content, productionItemPrefab);
+                CreateProductionItemWithId(building.Id, building.DisplayName, building.Icon,
+                                    buildingsScrollView.content,false);
             }
         }
     }
@@ -967,7 +966,8 @@ public class GameHUD : MonoBehaviour
         var availableUnits = city.GetAvailableUnitsForProduction();
         foreach (var unit in availableUnits)
         {
-            CreateProductionItem(unit, false, true, unitsScrollView.content, productionItemPrefab); // not constructed, clickable
+            CreateProductionItemWithId(unit.Id, unit.DisplayName, unit.Icon,
+            unitsScrollView.content);
         }
     }
 
@@ -976,7 +976,8 @@ public class GameHUD : MonoBehaviour
         var currentProduction = city.GetCurrentProduction();
         if (currentProduction != null)
         {
-            CreateProductionItem(currentProduction, true, false, currentProductionPanel.transform, productionItemPrefab);
+            CreateProductionItemWithId(currentProduction.Id, currentProduction.DisplayName, currentProduction.Icon,
+                                     currentProductionPanel.transform);
 
             if (turnRemaining)
             {
@@ -986,43 +987,30 @@ public class GameHUD : MonoBehaviour
         }
     }
 
-    void CreateProductionItem(IProductionItem item, bool isConstructed, bool isClickable, Transform parent, GameObject prefab)
+    void CreateProductionItemWithId(string itemId, string displayName, Sprite icon, Transform parent,bool clickable=true)
     {
-        GameObject itemObj = Instantiate(prefab, parent);
+        GameObject itemObj = Instantiate(productionItemPrefab, parent);
 
-        // Set icon
+        // Set visual data
         var iconImage = itemObj.transform.Find("Image")?.GetComponent<UnityEngine.UI.Image>();
-        if (iconImage && item.Icon)
-            iconImage.sprite = item.Icon;
+        if (iconImage && icon) iconImage.sprite = icon;
 
-        // Set text
         var textComponent = itemObj.GetComponentInChildren<TextMeshProUGUI>();
-        if (textComponent)
-        {
-            string displayText = item.DisplayName;
-            
-            textComponent.text = displayText;
-        }
+        if (textComponent) textComponent.text = displayName;
 
+        // Store ID and setup click handler
         var button = itemObj.GetComponent<UnityEngine.UI.Button>();
-        if (button == null)
-            button = itemObj.AddComponent<UnityEngine.UI.Button>();
+        if (button == null) button = itemObj.AddComponent<UnityEngine.UI.Button>();
 
-        if (isClickable && !isConstructed)
-        {
-            button.onClick.AddListener(() => OnProductionItemClicked(item));
-        }
-        else
-        {
-            button.interactable = false; // Disable button if not clickable
-        }
+        button.onClick.AddListener(() => OnProductionItemClicked(itemId));
+        button.interactable = clickable;
     }
 
-    void OnProductionItemClicked(IProductionItem item)
+    void OnProductionItemClicked(string itemId)
     {
         if (selectedCity != null)
         {
-            selectedCity.ChangeProduction(item);
+            selectedCity.StartProductionById(itemId);
             ShowCityManagement(selectedCity); // Refresh UI
 
             //// Update turn state since city now has production

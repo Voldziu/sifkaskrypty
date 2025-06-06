@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Unity.VisualScripting;
@@ -27,6 +28,11 @@ public class City : MonoBehaviour, ICity
 
     private HexMapGenerator mapGenerator;
 
+    private List<IProductionItem> cachedAvailableBuildings = null;
+    private List<IProductionItem> cachedAvailableUnits = null;
+
+
+
 
     public CivManager CivManager => civManager;
     public string CityId => cityId;
@@ -41,6 +47,27 @@ public class City : MonoBehaviour, ICity
     public List<string> ConstructedBuildings => constructedBuildings;
     public Dictionary<string, int> Specialists => specialists;
     public List<IProductionItem> ProductionQueue => productionQueue.Cast<IProductionItem>().ToList();
+
+
+    public List<IProductionItem> AvailableBuildings
+    {
+        get
+        {
+            //if (cachedAvailableBuildings == null) -- IF YOU WANT TO OPTIMIZE THIS, YOU CAN USE A CACHE
+            cachedAvailableBuildings = GetAvailableBuildingsForProduction();
+            return cachedAvailableBuildings;
+        }
+    }
+
+    public List<IProductionItem> AvailableUnits
+    {
+        get
+        {
+            //if (cachedAvailableUnits == null) -- IF YOU WANT TO OPTIMIZE THIS, YOU CAN USE A CACHE
+            cachedAvailableUnits = GetAvailableUnitsForProduction();
+            return cachedAvailableUnits;
+        }
+    }
 
     public void Initialize(string id, string name, IHex centerHex, HexMapGenerator mapGenerator,CivManager civManager)
     {
@@ -204,8 +231,9 @@ public class City : MonoBehaviour, ICity
     public bool ProcessProduction(int productionYield)
     {
 
-        Debug.Log($"Processing production for {cityName}: {productionYield} yield");
+        Debug.Log($"Processing production for {cityName}: {productionYield} production");
         IProductionItem current = GetCurrentProduction();
+        Debug.Log($"Current production item: {current?.Id ?? "None"}");
         if (current == null) return false;
 
         current.ProductionAccumulated += productionYield;
@@ -237,8 +265,10 @@ public class City : MonoBehaviour, ICity
             // Create unit at city location
             if (civManager?.UnitsManager != null)
             {
-                var unitType = System.Enum.Parse<UnitType>(item.Id);
-                var unitCategory = GetUnitCategory(unitType);
+                Debug.Log($"Creating unit {item.DisplayName} at {cityName} ({centerHex.Q}, {centerHex.R})");
+                var unitData = UnitDatabase.GetUnit(item.Id);
+                var unitType = unitData.UnitType;
+                var unitCategory = unitData.UnitCategory;
                 civManager.UnitsManager.CreateUnit(unitCategory, unitType, centerHex);
             }
             Debug.Log($"{cityName} completed {item.DisplayName}");
@@ -252,14 +282,27 @@ public class City : MonoBehaviour, ICity
         var current = GetCurrentProduction();
         if (current != null)
         {
-          
+
+            if (current.Id == newItem.Id)
+            {
+                newItem.ProductionAccumulated = current.ProductionAccumulated;
+            }
+
             productionQueue.RemoveAt(0);
         }
 
         StartProduction(newItem);
     }
 
-  
+    public void StartProduction(IProductionItem item)
+    {
+        if (!CanProduce(item)) return;
+
+        AddToProductionQueue(item);
+        Debug.Log($"{cityName} started producing {item.DisplayName}");
+    }
+
+
 
     UnitCategory GetUnitCategory(UnitType unitType)
     {
@@ -330,14 +373,14 @@ public class City : MonoBehaviour, ICity
 
         foreach (var buildingPair in allBuildings)
         {
-            var building = buildingPair.Value;
+            var template = buildingPair.Value;
 
             // Skip if already built
-            if (HasBuilding(building.Id)) continue;
+            if (HasBuilding(template.Id)) continue;
 
             // Check prerequisites (other buildings)
             bool hasPrereqs = true;
-            if (building is Building buildingData)
+            if (template is Building buildingData)
             {
                 foreach (var prereq in buildingData.Prerequisites)
                 {
@@ -348,13 +391,13 @@ public class City : MonoBehaviour, ICity
                     }
                 }
             }
-            if (!hasPrereqs) continue;
-
+           
+            bool hasTechs = true;
             // Check tech requirements
-            if (techManager != null && building.RequiredTechs != null)
+            if (techManager != null && template.RequiredTechs != null)
             {
-                bool hasTechs = true;
-                foreach (var techId in building.RequiredTechs)
+                
+                foreach (var techId in template.RequiredTechs)
                 {
                     if (!techManager.HasTechnology(techId))
                     {
@@ -362,10 +405,21 @@ public class City : MonoBehaviour, ICity
                         break;
                     }
                 }
-                if (!hasTechs) continue;
+                
             }
 
-            availableBuildings.Add(building);
+            if (hasTechs && hasPrereqs)
+            {
+                var building = new Building(template.Id, template.DisplayName,
+                               template.ProductionCost, template.Yields,
+                               template.SpecialistSlots);
+                availableBuildings.Add(building);
+            }
+
+            
+
+
+           
         }
 
         return availableBuildings;
@@ -380,24 +434,26 @@ public class City : MonoBehaviour, ICity
 
         foreach (var unitPair in allUnits)
         {
-            var unit = unitPair.Value;
+            var template = unitPair.Value;
 
             // Check tech requirements
-            bool canBuild = true;
-            if (techManager != null && unit.RequiredTechs != null)
+            bool hasTechs = true;
+            if (techManager != null && template.RequiredTechs != null)
             {
-                foreach (var techId in unit.RequiredTechs)
+                foreach (var techId in template.RequiredTechs)
                 {
                     if (!techManager.HasTechnology(techId))
                     {
-                        canBuild = false;
+                        hasTechs = false;
                         break;
                     }
                 }
             }
 
-            if (canBuild)
+            if (hasTechs)
             {
+                var unit = new UnitData(template.id, template.displayName, template.productionCost, template.UnitType, template.UnitCategory,
+                   template.Attack, template.Defense, template.MaxHealth, template.MaxMovement);
                 availableUnits.Add(unit);
             }
         }
@@ -473,12 +529,17 @@ public class City : MonoBehaviour, ICity
         return true;
     }
 
-    public void StartProduction(IProductionItem item)
+    public void StartProductionById(string itemId)
     {
-        if (!CanProduce(item)) return;
 
-        AddToProductionQueue(item);
-        Debug.Log($"{cityName} started producing {item.DisplayName}");
+        var item = AvailableBuildings.FirstOrDefault(b => b.Id == itemId) ??
+               AvailableUnits.FirstOrDefault(u => u.Id == itemId);
+
+       
+        if (item != null)
+        {
+            ChangeProduction(item);
+        }
     }
 
 
@@ -522,6 +583,13 @@ public class City : MonoBehaviour, ICity
 
         ProcessProduction(yields.production);
     }
+
+
+    //public void RefreshAvailableProduction()
+    //{
+    //    cachedAvailableBuildings = null;    -- CAN BE OPTIMIZED BUT WE DONT HAVE TIME FOR THIS :) 
+    //    cachedAvailableUnits = null;
+    //}
 
     
     

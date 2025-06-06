@@ -17,6 +17,10 @@ public interface ICity : IYielding
     Dictionary<string, int> Specialists { get; }
     List<IProductionItem> ProductionQueue { get; }
 
+    List<IProductionItem> AvailableBuildings { get; }
+
+    List<IProductionItem> AvailableUnits { get; }
+
     void Initialize(string id, string name, IHex centerHex, HexMapGenerator mapGenerator,CivManager civManager);
 
     int GetFoodRequiredForGrowth();
@@ -40,8 +44,9 @@ public interface ICity : IYielding
     public bool CanProduceUnit(UnitType unitType);
 
 
+    public void StartProductionById(string itemId);
     public void StartProduction(IProductionItem item);
-    public void ChangeProduction(IProductionItem newItem);
+    public void ChangeProduction(IProductionItem item);
 
     public int GetTurnsRemaining();
 
