@@ -11,11 +11,8 @@ public static class UnitDatabase
     }
 
     static void InitializeUnits()
-
-
-    // UNCOMMENT WHEN ICON ARE AVAILABLE
     {
-        // Ancient Era Units
+        // Ancient Era Units - Combat
         var warrior = new UnitData("warrior", "Warrior", 1, UnitType.Warrior, UnitCategory.Combat, 6, 6, 100, 2);
 
         var archer = new UnitData("archer", "Archer", 40, UnitType.Archer, UnitCategory.Combat, 5, 5, 100, 2)
@@ -26,6 +23,7 @@ public static class UnitDatabase
 
         var scout = new UnitData("scout", "Scout", 1, UnitType.Scout, UnitCategory.Combat, 4, 4, 100, 3);
 
+        // Ancient Era Units - Civilian  
         var settler = new UnitData("settler", "Settler", 1, UnitType.Settler, UnitCategory.Civilian, 0, 0, 100, 2);
 
         var worker = new UnitData("worker", "Worker", 70, UnitType.Worker, UnitCategory.Civilian, 0, 0, 100, 2);
@@ -39,13 +37,13 @@ public static class UnitDatabase
 
         // Add all units to database
         units["warrior"] = warrior;
-        units["archer"] =  (UnitData) archer;
-        units["spearman"] = (UnitData) spearman;
+        units["archer"] = (UnitData)archer;
+        units["spearman"] = (UnitData)spearman;
         units["scout"] = scout;
         units["settler"] = settler;
         units["worker"] = worker;
-        units["swordsman"] = (UnitData) swordsman;
-        units["horseman"] = (UnitData) horseman;
+        units["swordsman"] = (UnitData)swordsman;
+        units["horseman"] = (UnitData)horseman;
     }
 
     public static UnitData GetUnit(string id)
@@ -76,6 +74,50 @@ public static class UnitDatabase
     public static List<UnitData> GetCivilianUnits()
     {
         return GetUnitsByCategory(UnitCategory.Civilian);
+    }
+
+    public static List<UnitData> GetMeleeUnits()
+    {
+        return GetCombatUnits().Where(u => GetCombatType(u.UnitType) == CombatType.Melee).ToList();
+    }
+
+    public static List<UnitData> GetRangedUnits()
+    {
+        return GetCombatUnits().Where(u => GetCombatType(u.UnitType) == CombatType.Ranged).ToList();
+    }
+
+    public static CombatType GetCombatType(UnitType unitType)
+    {
+        switch (unitType)
+        {
+            case UnitType.Archer:
+                return CombatType.Ranged;
+            case UnitType.Warrior:
+            case UnitType.Spearman:
+            case UnitType.Swordsman:
+            case UnitType.Horseman:
+            case UnitType.Scout:
+                return CombatType.Melee;
+            default:
+                return CombatType.Melee; // Default for civilian units
+        }
+    }
+
+    public static int GetAttackRange(UnitType unitType)
+    {
+        switch (unitType)
+        {
+            case UnitType.Archer:
+                return 2;
+            case UnitType.Warrior:
+            case UnitType.Spearman:
+            case UnitType.Swordsman:
+            case UnitType.Horseman:
+            case UnitType.Scout:
+                return 1;
+            default:
+                return 0; // Civilian units can't attack
+        }
     }
 
     public static bool HasUnit(string id)

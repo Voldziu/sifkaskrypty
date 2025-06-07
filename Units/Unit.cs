@@ -1,12 +1,18 @@
 using Unity.VisualScripting;
 using UnityEngine;
-using static UnityEditor.FilePathAttribute;
 
 public enum UnitCategory
 {
     Combat,     // Warriors, Archers, etc. - only one per hex
     Civilian    // Settlers, Workers, etc. - only one per hex
 }
+
+public enum CombatType
+{
+    Melee,      // Close combat units
+    Ranged,     // Archers and other ranged units
+    Siege       // Siege units (not implemented yet)
+}   
 
 [System.Serializable]
 public class Unit : MonoBehaviour, IUnit
@@ -28,6 +34,10 @@ public class Unit : MonoBehaviour, IUnit
     public int attack;
     public int defense;
 
+    [Header("Combat")]
+    public CombatType combatType;
+    public int attackRange;
+
     [Header("Visual")]
     public GameObject unitPrefab;
     public GameObject unitVisual;
@@ -47,46 +57,60 @@ public class Unit : MonoBehaviour, IUnit
     public int MaxMovement => maxMovement;
     public int Attack => attack;
     public int Defense => defense;
-    public bool HasMoved => movement ==0;
+    public bool HasMoved => movement == 0;
+    public CombatType CombatType => combatType;
+    public int AttackRange => attackRange;
 
     public void Initialize(string unitId, UnitType unitType, Hex startingHex, GameObject prefab = null)
     {
         this.unitId = unitId;
         this.unitType = unitType;
         this.currentHex = startingHex;
-       
         this.unitPrefab = prefab;
-
         this.unitName = $"{unitType}_{unitId}";
+
+        // Set combat type and range based on unit type
+        SetCombatProperties();
+
         this.health = this.maxHealth;
         this.movement = this.maxMovement;
 
-     
-
         UpdateVisualPosition();
-      
     }
 
-    
+    private void SetCombatProperties()
+    {
+        switch (unitType)
+        {
+            case UnitType.Warrior:
+            case UnitType.Spearman:
+            case UnitType.Swordsman:
+            case UnitType.Horseman:
+                combatType = CombatType.Melee;
+                attackRange = 1;
+                break;
 
-   
+            case UnitType.Archer:
+                combatType = CombatType.Ranged;
+                attackRange = 2;
+                break;
+
+            case UnitType.Scout:
+                combatType = CombatType.Melee;
+                attackRange = 1;
+                break;
+
+            default: // Civilian units
+                combatType = CombatType.Melee; // Default, though they shouldn't attack
+                attackRange = 0;
+                break;
+        }
+    }
 
     Vector3 GetVisualPosition()
     {
-        // Start with the main GameObject's world position (hex center)
         Vector3 basePos = transform.position;
-
-        // Add visual offset based on unit category
-        float yOffset = 0f;
-        if (unitCategory == UnitCategory.Civilian)
-        {
-            yOffset = -0.2f; // Lower civilians
-        }
-        else
-        {
-            yOffset = 0.2f; // Raise combat units
-        }
-
+        float yOffset = unitCategory == UnitCategory.Civilian ? -0.2f : 0.2f;
         return new Vector3(basePos.x, basePos.y + yOffset, basePos.z);
     }
 
@@ -95,11 +119,7 @@ public class Unit : MonoBehaviour, IUnit
         if (hex != null && CanMoveTo(hex))
         {
             currentHex = (Hex)hex;
-            
             movement = Mathf.Max(0, movement);
-
-            // Update visual position
-
             UpdateMainPosition();
             UpdateVisualPosition();
         }
@@ -111,10 +131,8 @@ public class Unit : MonoBehaviour, IUnit
         {
             Vector3 visualPos = GetVisualPosition();
             unitVisual.transform.position = visualPos;
-            Debug.Log($"Unit {unitName} visual positioned at: {visualPos}");
         }
     }
-
 
     void UpdateMainPosition()
     {
@@ -124,8 +142,7 @@ public class Unit : MonoBehaviour, IUnit
             if (mapManager != null && mapManager.HexMap != null)
             {
                 Vector3 worldPos = mapManager.HexMap.HexToWorld(currentHex.Q, currentHex.R);
-                transform.position = worldPos; // No offset for main GameObject
-                Debug.Log($"Unit {unitName} main GameObject positioned at: {worldPos}");
+                transform.position = worldPos;
             }
         }
     }
@@ -134,17 +151,12 @@ public class Unit : MonoBehaviour, IUnit
     {
         if (hex == null || movement <= 0) return false;
         if (hex.IsObstacle) return false;
-
-        // Check unit stacking rules: only one combat and one civilian unit per hex
-        // This check should be done by UnitsManager, not here
-
         return true;
     }
 
     public void ProcessTurn()
     {
         movement = maxMovement;
-        
 
         if (health < maxHealth)
         {

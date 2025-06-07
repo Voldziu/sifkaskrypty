@@ -8,6 +8,9 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
     public UnitPrefabData[] unitPrefabs;
     public int maxUnits = 50;
 
+    [Header("Combat")]
+    public CombatManager combatManager;
+
     [Header("Unit Stacking")]
     public bool allowUnitStacking = true; // One combat + one civilian per hex
     public bool allowEnemyStacking = false; // Whether enemy units can stack with player units
@@ -24,6 +27,7 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
     public List<IUnit> Units => units;
     public int UnitCount => units.Count;
     public UnitPrefabData[] UnitPrefabs => unitPrefabs;
+    public CombatManager CombatManager => combatManager;
 
     // Events
     public event System.Action<IUnit> OnUnitCreated;
@@ -343,43 +347,9 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
         return CalculateMovementCost(unit.CurrentHex, destination);
     }
 
-    public bool CanAttack(IUnit attacker, IUnit target)
-    {
-        if (attacker == null || target == null) return false;
-        if (!attacker.IsCombatUnit()) return false;
-        if (attacker.HasMoved) return false;
-        if (IsOwnedByCurrentCiv(target)) return false; // Can't attack own units
+    
 
-        int distance = mapManager.GetDistance((Hex)attacker.CurrentHex, (Hex)target.CurrentHex);
-        return distance <= 1; // Melee range
-    }
-
-    public void Attack(IUnit attacker, IUnit target)
-    {
-        if (!CanAttack(attacker, target)) return;
-
-        int damage = CalculateDamage(attacker, target);
-        target.TakeDamage(damage);
-
-        if (target.IsCombatUnit())
-        {
-            int counterDamage = CalculateDamage(target, attacker) / 2;
-            attacker.TakeDamage(counterDamage);
-        }
-
-        
-
-        Debug.Log($"{attacker.UnitName} attacked {target.UnitName} for {damage} damage");
-
-        if (!target.IsAlive())
-        {
-            RemoveUnit(target.UnitId);
-        }
-        if (!attacker.IsAlive())
-        {
-            RemoveUnit(attacker.UnitId);
-        }
-    }
+    
 
     int CalculateDamage(IUnit attacker, IUnit defender)
     {
@@ -697,6 +667,88 @@ public class UnitsManager : MonoBehaviour, IUnitsManager
         var unitData = GetUnitPrefabData(unitType);
         return unitData?.productionCost ?? 100;
     }
+
+    
+
+    // COMBAT METHODS
+    public bool CanAttack(IUnit attacker, IUnit target)
+    {
+        return combatManager.CanAttack(attacker, target);
+    }
+
+    public void Attack(IUnit attacker, IUnit target)
+    {
+        combatManager.ExecuteCombat(attacker, target);
+
+        // Remove dead units
+        if (!target.IsAlive())
+        {
+            RemoveUnit(target.UnitId);
+        }
+        if (!attacker.IsAlive())
+        {
+            RemoveUnit(attacker.UnitId);
+        }
+    }
+
+    public CombatPrediction PredictCombat(IUnit attacker, IUnit defender)
+    {
+        return combatManager.PredictCombat(attacker, defender);
+    }
+
+    public List<IUnit> GetAttackableTargets(IUnit attacker)
+    {
+        var targets = new List<IUnit>();
+
+        if (!attacker.IsCombatUnit()) return targets;
+
+        // Get all units in attack range
+        var reachableHexes = mapManager.GetReachableHexes((Hex)attacker.CurrentHex, attacker.AttackRange);
+
+        foreach (var hex in reachableHexes)
+        {
+            var unitsAtHex = GetAllUnitsAtHex(hex);
+            foreach (var unit in unitsAtHex)
+            {
+                if (CanAttack(attacker, unit))
+                {
+                    targets.Add(unit);
+                }
+            }
+        }
+
+        return targets;
+    }
+
+    private List<IUnit> GetAllUnitsAtHex(IHex hex)
+    {
+        var allUnits = new List<IUnit>();
+
+        // Add our units
+        allUnits.AddRange(GetUnitsAt(hex));
+
+        // Add enemy units (need access to other civs' units)
+        var civsManager = civilization.CivManager?.CivsManager;
+        if (civsManager != null)
+        {
+            var allCivs = civsManager.GetAliveCivilizations();
+            foreach (var civ in allCivs)
+            {
+                if (civ.CivId != civilization.CivId)
+                {
+                    var enemyUnitsManager = civ.CivManager?.UnitsManager;
+                    if (enemyUnitsManager != null)
+                    {
+                        var enemyUnits = enemyUnitsManager.GetUnitsAt(hex);
+                        allUnits.AddRange(enemyUnits);
+                    }
+                }
+            }
+        }
+
+        return allUnits;
+    }
+
 
     // Utility methods
     public List<IUnit> GetCombatUnits()

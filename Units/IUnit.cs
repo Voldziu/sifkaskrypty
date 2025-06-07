@@ -13,6 +13,8 @@ public interface IUnit
     string UnitName { get; }
     UnitType UnitType { get; }
     UnitCategory UnitCategory { get; }
+
+    CombatType CombatType { get; }
     IHex CurrentHex { get; }
 
     // Stats Properties
@@ -21,6 +23,7 @@ public interface IUnit
     int Movement { get; set; }
     int MaxMovement { get; }
     int Attack { get; }
+    int AttackRange { get; }
     int Defense { get; }
     bool HasMoved { get;}
 

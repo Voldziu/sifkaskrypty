@@ -504,6 +504,7 @@ public class MapManager : MonoBehaviour, IMapManager
 
     public int GetDistance(Hex a, Hex b)
     {
+        Debug.Log($"A exists: {a!=null}, B exists: {b!=null}");
         return isInitialized ? hexMap.GetDistance(a, b) : 0;
     }
 

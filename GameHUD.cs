@@ -69,7 +69,31 @@ public class GameHUD : MonoBehaviour
     [Header("Current Production")]
     public TextMeshProUGUI turnRemaining;
     public GameObject currentProductionPanel;
-    
+
+
+    [Header("Combat Panel")]
+    public GameObject combatPanel;
+    public GameObject attackerPanel;
+    public GameObject defenderPanel;
+
+    [Header("Attacker Info")]
+   
+    public TextMeshProUGUI attackerHealthText;
+    public TextMeshProUGUI attackerDamageText;
+    public UnityEngine.UI.Slider attackerHealthSlider;
+
+    [Header("Defender Info")]
+  
+    public TextMeshProUGUI defenderHealthText;
+    public TextMeshProUGUI defenderDamageText;
+    public UnityEngine.UI.Slider defenderHealthSlider;
+
+    [Header("Combat Colors")]
+    public Color attackerColor = Color.green;
+    public Color defenderColor = Color.red;
+
+
+
 
     [Header("Colors")]
     public Color player1Color = Color.blue;
@@ -97,6 +121,9 @@ public class GameHUD : MonoBehaviour
     // Movement state
     private bool isInMovementMode = false;
     private Hex lastSelectedHex = null;
+
+    private IUnit hoveredEnemyUnit;
+    private bool isInCombatMode = false;
 
     void Start()
     {
@@ -145,7 +172,7 @@ public class GameHUD : MonoBehaviour
         UpdateHUD();
         HandleInput();
         UpdateHexInfo();
-        //HandleCityPanelClickOutside();
+        UpdateCombatUI();
     }
 
     void UpdateHUD()
@@ -209,6 +236,132 @@ public class GameHUD : MonoBehaviour
                 }
             }
         }
+    }
+
+    void UpdateCombatUI()
+    {
+        if (selectedUnit == null || !selectedUnit.IsCombatUnit())
+        {
+            HideCombatPanel();
+            return;
+        }
+
+        // Check if mouse is over an enemy unit
+        var mapManager = gameManager?.MapManager;
+        if (mapManager != null)
+        {
+            Hex hoveredHex = mapManager.GetHexUnderMouse();
+            if (hoveredHex != null)
+            {
+                var enemyUnit = GetEnemyUnitAtHex(hoveredHex);
+                Debug.Log($"Hovered hex ({hoveredHex.Q}, {hoveredHex.R}) - Enemy unit: {enemyUnit?.UnitName}");
+                if (enemyUnit != null && CanAttackUnit(selectedUnit, enemyUnit))
+                {
+                    if (hoveredEnemyUnit != enemyUnit)
+                    {
+                        hoveredEnemyUnit = enemyUnit;
+                        ShowCombatPreview(selectedUnit, enemyUnit);
+                    }
+                }
+                else
+                {
+                    if (hoveredEnemyUnit != null)
+                    {
+                        hoveredEnemyUnit = null;
+                        HideCombatPanel();
+                    }
+                }
+            }
+        }
+    }
+
+    void HideCombatPanel()
+    {
+        if (combatPanel) combatPanel.SetActive(false);
+        isInCombatMode = false;
+        hoveredEnemyUnit = null;
+    }
+
+    IUnit GetEnemyUnitAtHex(Hex hex)
+    {
+        // Get all units at hex from all civilizations
+        var civsManager = gameManager?.CivsManager;
+        if (civsManager == null) return null;
+
+        var allCivs = civsManager.GetAliveCivilizations();
+        foreach (var civ in allCivs)
+        {
+            if (civ.CivId != currentPlayerCiv?.CivId)  // Different civilization
+            {
+                var enemyUnitsManager = civ.CivManager?.UnitsManager;
+                if (enemyUnitsManager != null)
+                {
+                    var enemyUnits = enemyUnitsManager.GetUnitsAt(hex);
+                    if (enemyUnits.Count > 0)
+                    {
+                        return enemyUnits[0]; // Return first enemy unit
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    void ShowCombatPreview(IUnit attacker, IUnit defender)
+    {
+        var unitsManager = currentPlayerCiv?.CivManager?.UnitsManager;
+        if (unitsManager == null) return;
+
+        var prediction = unitsManager.PredictCombat(attacker, defender);
+
+        if (combatPanel) combatPanel.SetActive(true);
+
+        // Update attacker info
+       
+        if (attackerHealthText) attackerHealthText.text = $"{attacker.Health}";
+        if (attackerDamageText) attackerDamageText.text = $"{prediction.attackerDamage}";
+
+        if (attackerHealthSlider)
+        {
+            attackerHealthSlider.maxValue = attacker.MaxHealth;
+            attackerHealthSlider.value = prediction.attackerHealthAfter;
+
+            // Color the slider based on outcome
+            var fillImage = attackerHealthSlider.fillRect.GetComponent<UnityEngine.UI.Image>();
+            if (fillImage && ! prediction.attackerDies)
+            {
+                fillImage.color = attackerColor;
+            }
+        }
+
+        // Update defender info
+       
+        if (defenderHealthText) defenderHealthText.text = $"{defender.Health}";
+        if (defenderDamageText) defenderDamageText.text = $"{prediction.attackerDamage}";
+
+        if (defenderHealthSlider)
+        {
+            defenderHealthSlider.maxValue = defender.MaxHealth;
+            defenderHealthSlider.value = prediction.defenderHealthAfter;
+
+            var fillImage = defenderHealthSlider.fillRect.GetComponent<UnityEngine.UI.Image>();
+            if (fillImage && !prediction.defenderDies)
+            {
+                fillImage.color = defenderColor;
+            }
+        }
+
+        isInCombatMode = true;
+    }
+
+    bool CanAttackUnit(IUnit attacker, IUnit target)
+    {
+        var unitsManager = currentPlayerCiv?.CivManager?.UnitsManager;
+        if (unitsManager != null)
+        {
+            return unitsManager.CanAttack(attacker, target);
+        }
+        return false;
     }
 
     Color GetCivColor(int civIndex)
@@ -417,6 +570,7 @@ public class GameHUD : MonoBehaviour
         }
     }
 
+    
     void HandleRightClickMovement()
     {
         var mapManager = gameManager?.MapManager;
@@ -425,6 +579,16 @@ public class GameHUD : MonoBehaviour
         Hex clickedHex = mapManager.GetHexUnderMouse();
         if (clickedHex != null)
         {
+            // Check if there's an enemy unit to attack
+            var enemyUnit = GetEnemyUnitAtHex(clickedHex);
+            if (enemyUnit != null && selectedUnit != null && CanAttackUnit(selectedUnit, enemyUnit))
+            {
+                // Execute attack
+                ExecuteAttack(selectedUnit, enemyUnit);
+                return;
+            }
+
+            // Normal movement
             if (!isInMovementMode)
             {
                 EnterMovementMode();
@@ -435,6 +599,33 @@ public class GameHUD : MonoBehaviour
                 HandleMovementClick(clickedHex);
             }
         }
+    }
+
+    void ExecuteAttack(IUnit attacker, IUnit target)
+    {
+        var unitsManager = currentPlayerCiv?.CivManager?.UnitsManager;
+        if (unitsManager == null) return;
+
+        Debug.Log($"Executing attack: {attacker.UnitName} -> {target.UnitName}");
+
+        unitsManager.Attack(attacker, target);
+
+        // Hide combat panel and update UI
+        HideCombatPanel();
+
+        // Update unit info if attacker is still alive
+        if (attacker.IsAlive())
+        {
+            ShowUnitInfo(attacker);
+        }
+        else
+        {
+            // Attacker died, deselect
+            DeselectAll();
+        }
+
+        // Clear movement highlights
+        ClearAllHighlights();
     }
 
     void HandleMovementClick(Hex targetHex)
@@ -531,6 +722,7 @@ public class GameHUD : MonoBehaviour
         CancelMovementMode();
         ClearAllHighlights();
         HideAllPanels();
+        HideCombatPanel(); 
         selectedUnit = null;
         selectedCity = null;
         unitsOnSelectedHex.Clear();
@@ -581,10 +773,12 @@ public class GameHUD : MonoBehaviour
 
     void CancelMovementMode()
     {
-        if (!isInMovementMode) return;
+        if (!isInMovementMode && !isInCombatMode) return;
 
         isInMovementMode = false;
+        isInCombatMode = false;
         ClearAllHighlights();
+        HideCombatPanel();
 
         if (hexInfoPanel) hexInfoPanel.SetActive(false);
 
@@ -593,6 +787,7 @@ public class GameHUD : MonoBehaviour
 
         ShowMovementRange(selectedUnit);
     }
+
 
     void ClearAllHighlights()
     {
@@ -1072,6 +1267,7 @@ public class GameHUD : MonoBehaviour
     {
         HideUnitPanel();
         HideCityManagement();
+        HideCombatPanel();
     }
 
     void OnDestroy()

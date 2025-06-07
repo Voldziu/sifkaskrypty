@@ -22,6 +22,8 @@ public interface IUnitsManager
     bool CanAttack(IUnit attacker, IUnit target);
     void Attack(IUnit attacker, IUnit target);
 
+    public CombatPrediction PredictCombat(IUnit attacker, IUnit defender);
+
 
     public int GetMovementCostTo(IUnit unit, IHex destination);
 
@@ -46,6 +48,9 @@ public interface IUnitsManager
     public bool BuildImprovement(IUnit worker, ImprovementType improvementType = ImprovementType.None);
 
     public int GetUnitProductionCost(UnitType unitType);
+
+
+    
 
 
 
